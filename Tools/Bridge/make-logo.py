@@ -6,7 +6,7 @@ goes next to the game files on the server, never into the repository:
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <game dir>/Interface/Glues/LasthavensLogo.tga
 
 With a loading-screen painting (from extract-art.mjs) it also writes the 1200 x 630 link-preview image the page's
-Open Graph tags point at (index.html), into the web directory:
+Open Graph tags point at (index.html), and favicon.svg (the icon below), into the web directory:
 
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <tga> <web dir>/loading-0.png <web dir>/og-image.jpg
 
@@ -17,7 +17,10 @@ They are uploaded to Discord by hand, so they go anywhere outside the repository
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <tga> <web dir>/loading-0.png <web dir>/og-image.jpg FRIZQT__.TTF <dir>
 """
 
+import base64
+import os
 import sys
+from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -101,7 +104,7 @@ def render_preview(title, font_path, painting_path):
     return card.convert("RGB")
 
 
-def render_discord(title, font_path, subtitle_font_path, painting_path):
+def render_banner(title, subtitle_font_path, painting_path):
     # The Northrend painting stretched to 16:10 like the client, cropped to 16:9 from the top: Arthas on the left,
     # Frostmourne on the right, and the WoW logo at the top centre, filled in from the pixels around it (a blur that
     # ignores the logo's own pixels; coarse first so the middle of the hole, far from any of them, still gets a colour).
@@ -136,9 +139,12 @@ def render_discord(title, font_path, subtitle_font_path, painting_path):
     draw = ImageDraw.Draw(banner)
     draw.text((x + 2, y + 3), SUBTITLE, font=font, fill=(0, 0, 0, 200), stroke_width=2, stroke_fill=(0, 0, 0, 200))
     draw.text((x, y), SUBTITLE, font=font, fill=(199, 224, 255, 255), stroke_width=2, stroke_fill=(10, 14, 24, 255))
+    return banner.convert("RGB")
 
-    # The icon: the title's "L" over Frostmourne, darkened towards the edge (Discord shows it as a circle).
-    wide = painting.resize((1600, 1000), Image.LANCZOS)
+
+def render_icon(font_path, painting_path):
+    # The title's "L" over Frostmourne, darkened towards the edge (Discord shows it as a circle).
+    wide = Image.open(painting_path).convert("RGB").resize((1600, 1000), Image.LANCZOS)
     icon = wide.crop((900, 250, 1500, 850)).resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS).convert("RGBA")
     black = Image.new("RGBA", icon.size, (0, 0, 0, 255))
     icon = Image.blend(icon, black, 0.45)
@@ -146,7 +152,18 @@ def render_discord(title, font_path, subtitle_font_path, painting_path):
     ImageDraw.Draw(lit).ellipse((40, 40, ICON_SIZE - 40, ICON_SIZE - 40), fill=255)
     icon = Image.composite(icon, Image.blend(icon, black, 0.6), lit.filter(ImageFilter.GaussianBlur(70)))
     icon.alpha_composite(render_title(font_path, TEXT[0], ICON_SIZE, ICON_SIZE, 400, 14), (0, 10))
-    return banner.convert("RGB"), icon.convert("RGB")
+    return icon.convert("RGB")
+
+
+def favicon_svg(icon):
+    # The page links favicon.svg; this one, in the web directory, is served before the committed one in
+    # Tools/Bridge/web (bridge.mjs, webDirs), which stays as the fallback. Cropped close to the letter so it reads at
+    # 16 px; 64 px covers a tab at 2x.
+    data = BytesIO()
+    icon.crop((64, 72, 448, 456)).resize((64, 64), Image.LANCZOS).save(data, "PNG", optimize=True)
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><clipPath id="c"><rect width="64" height="64" rx="12"/>'
+            f'</clipPath><image clip-path="url(#c)" width="64" height="64" href="data:image/png;base64,'
+            f'{base64.b64encode(data.getvalue()).decode()}"/></svg>\n')
 
 
 if __name__ == "__main__":
@@ -156,7 +173,9 @@ if __name__ == "__main__":
     title.save(sys.argv[2], compression="tga_rle")   # mostly transparent, so RLE (TGA type 10) is far smaller
     if len(sys.argv) >= 5:
         render_preview(title, sys.argv[1], sys.argv[3]).save(sys.argv[4], quality=88, optimize=True)   # .jpg: a fraction of PNG
+        icon = render_icon(sys.argv[1], sys.argv[3])
+        with open(os.path.join(os.path.dirname(sys.argv[4]), "favicon.svg"), "w") as f:
+            f.write(favicon_svg(icon))
     if len(sys.argv) == 7:
-        banner, icon = render_discord(title, sys.argv[1], sys.argv[5], sys.argv[3])
-        banner.save(f"{sys.argv[6]}/discord-banner.png", optimize=True)
+        render_banner(title, sys.argv[5], sys.argv[3]).save(f"{sys.argv[6]}/discord-banner.png", optimize=True)
         icon.save(f"{sys.argv[6]}/discord-icon.png", optimize=True)
