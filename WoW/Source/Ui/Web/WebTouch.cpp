@@ -966,8 +966,12 @@ local function HideArt()
     UIParent:SetAttribute("TOP_OFFSET", -4)
     -- The tutorials teach the keyboard and mouse. Hidden here rather than switched off: that setting is the account's,
     -- and would follow it to desktop.
-    for _, name in ipairs({ "TutorialFrameParent", "TutorialFrame" }) do
+    -- Their "?" alert button too, which would open the hidden window.
+    for _, name in ipairs({ "TutorialFrameParent", "TutorialFrame", "TutorialFrameAlertButton" }) do
         if _G[name] then _G[name]:SetParent(hidden) end
+    end
+    for i = 1, 10 do
+        if _G["TutorialFrameAlertButton" .. i] then _G["TutorialFrameAlertButton" .. i]:SetParent(hidden) end
     end
 end
 
