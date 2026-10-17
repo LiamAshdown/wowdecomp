@@ -13,13 +13,24 @@ project(wowdecomp CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
-    message(FATAL_ERROR "wowdecomp targets Windows only.")
+if (EMSCRIPTEN)
+    # Browser build (wasm32). Neither WOWDECOMP_ARCH_* is defined, so the whole-file guarded Win32/ and Win64/ sources
+    # compile to nothing and each module's Web/ sources take their place.
+    set(WOWDECOMP_PLATFORM_WEB 1)
+    add_compile_definitions(WOWDECOMP_PLATFORM_WEB=1 NOMINMAX)
+    add_compile_options(-pthread -msimd128 -msse2 -fwasm-exceptions -fdeclspec
+        -Wno-microsoft -Wno-invalid-offsetof -Wno-c++11-narrowing -Wno-register)
+    add_link_options(-pthread -fwasm-exceptions)
+    include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/Engine/Source/Os/Web/compat)
+    add_compile_options("SHELL:-include ${CMAKE_SOURCE_DIR}/Engine/Source/Os/Web/compat/msvc_crt.h")
+elseif (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+    message(FATAL_ERROR "wowdecomp targets Windows and the browser (Emscripten) only.")
 endif ()
 
 # x64 is the target. Win32 stays buildable: it is the configuration whose struct layouts can be
 # checked against Wow.exe 3.3.5a (12340).
-if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+if (WOWDECOMP_PLATFORM_WEB)
+elseif (CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(WOWDECOMP_ARCH_64 1)
     add_compile_definitions(WOWDECOMP_ARCH_64=1)
 elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -39,13 +50,15 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-add_compile_definitions(
-    WIN32
-    _WINDOWS
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
-    _CRT_SECURE_NO_WARNINGS
-)
+if (NOT WOWDECOMP_PLATFORM_WEB)
+    add_compile_definitions(
+        WIN32
+        _WINDOWS
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif ()
 
 # Off by default: the client checks MPQ file MD5s (signaturefile) and GlueXML/FrameXML/AddOn .toc.sig files like the
 # original. ON accepts unsigned or modified game data and interface files.
@@ -107,12 +120,13 @@ add_subdirectory(WoW/Source/WowSvcs)
 add_subdirectory(WoW/Source)
 if (WIN32)
     add_subdirectory(Tools/WowClient)
+    set(WOWDECOMP_RC_TARGETS Wow WowClient MapViewer M2Viewer GxTest MpqTest BlpTest DbcTest AssetCheck)
 endif ()
 if (WOWDECOMP_ARCH_64)
     add_subdirectory(Tools/XvidDecoder)
 endif ()
 
-foreach (target Wow WowClient MapViewer M2Viewer GxTest MpqTest BlpTest DbcTest AssetCheck)
+foreach (target ${WOWDECOMP_RC_TARGETS})
     if (TARGET ${target})
         target_sources(${target} PRIVATE ${CMAKE_SOURCE_DIR}/waystone.rc)
     endif ()

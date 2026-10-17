@@ -71,6 +71,11 @@
 #include "WoW/Source/WowSvcs/WowSvcsClient/FileDownload.h"
 #include "WoW/Source/WowSvcs/WowSvcsClient/Types.h"
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+// Web build: in-client account creation and management (Web/WebAccount.cpp).
+void WebAccountInitialize();
+#endif
+
 // STATIC: 0x009E2C28
 const uint8_t InterfaceKey[256] = {
     0xC3, 0x5B, 0x50, 0x84, 0xB9, 0x3E, 0x32, 0x42, 0x8C, 0xD0, 0xC7, 0x48, 0xFA, 0x0E, 0x5D, 0x54,
@@ -759,6 +764,9 @@ void CGlueMgr::Resume() {
 #endif
 
             FrameScript_SignalEvent(GLUE_EVENT_FRAMES_LOADED, nullptr);
+#if defined(WOWDECOMP_PLATFORM_WEB)
+            WebAccountInitialize();
+#endif
             CGlueMgr::InitializeFFX();
 
             ClientServices::SetMessageHandler(SMSG_CHARACTER_RENAME_RESULT, CGlueMgr::OnCharRenameResult, nullptr);

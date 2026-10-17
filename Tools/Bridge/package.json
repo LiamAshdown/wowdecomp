@@ -1,0 +1,9 @@
+{
+  "name": "wowdecomp-bridge",
+  "private": true,
+  "type": "module",
+  "description": "Local bridge for the browser build (see bridge.mjs)",
+  "dependencies": {
+    "mysql2": "3.11.3"
+  }
+}

@@ -28,12 +28,70 @@
 #include "WoW/Source/Ui/BattlefieldInfo.h"
 #include "WoW/Source/Ui/CGWorldStateInfo.h"
 #include "WoW/Source/Ui/RaidInfo.h"
+#if !defined(WOWDECOMP_PLATFORM_WEB)
 #include "WoW/Source/Ui/UILCD/Windows/EZ_LCD.h"
 #include "WoW/Source/Ui/UILCD/Windows/LCDBitmap.h"
 #include "WoW/Source/Ui/UILCD/Windows/LCDText.h"
 #include "WoW/Source/Ui/UILCD/Windows/LCDUtils.h"
+#endif
 #include "WoW/Source/Ui/WorldMap.h"
 #include "WoW/Source/UIUtil/Tooltip.h"
+
+#if defined(WOWDECOMP_PLATFORM_WEB)
+
+// The Logitech LCD library does not exist in the browser, so the manager reports "no LCD present".
+void CGLCD::AuctionExpired(const char* name) {
+}
+
+void CGLCD::AuctionOutbid(const char* name) {
+}
+
+void CGLCD::AuctionSold(const char* name) {
+}
+
+void CGLCD::AuctionWon(const char* name) {
+}
+
+void CGLCD::ClearWaitQueueScreen() {
+}
+
+void CGLCD::EnterWorld() {
+}
+
+void CGLCD::HideBattlefieldAlert() {
+}
+
+void CGLCD::IdleDisconnectWarning() {
+}
+
+void CGLCD::Initialize() {
+}
+
+void CGLCD::LeaveWorld() {
+}
+
+void CGLCD::Login() {
+}
+
+void CGLCD::Logout() {
+}
+
+void CGLCD::OnBattlefieldActive() {
+}
+
+void CGLCD::OnBattlefieldReady(const BattlefieldStatus* status) {
+}
+
+void CGLCD::OnWhisper(const char* name) {
+}
+
+void CGLCD::ShowBattlefieldScreen() {
+}
+
+void CGLCD::Shutdown() {
+}
+
+#else
 
 // STATIC: 0x00B1C0BC
 TSList<POIIcon, TSGetLink<POIIcon> > CGLCD::m_POIIcons;
@@ -1832,3 +1890,5 @@ bool CGLCD::LoadLayout() {
     XMLTree_Free(tree);
     return true;
 }
+
+#endif

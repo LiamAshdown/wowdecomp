@@ -5,25 +5,33 @@ set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${SOUNDENGINE_DEFINITIO
 set(FMODEX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fmodex)
 set(FMODEX_FLAC_DIR ${FMODEX_DIR}/lib/flac-1.1.4)
 
+if (WOWDECOMP_PLATFORM_WEB)
+    set(FMODEX_PLATFORM_DIR ${FMODEX_DIR}/emscripten/src)
+    file(GLOB FMODEX_PLATFORM_SOURCES CONFIGURE_DEPENDS "${FMODEX_PLATFORM_DIR}/*.cpp")
+    # Web Audio side of the emscripten output (AudioContext + AudioWorklet), linked into whatever uses fmodex.
+    set(FMODEX_WEBAUDIO_JS ${FMODEX_PLATFORM_DIR}/library_fmod_webaudio.js)
+else ()
+    set(FMODEX_PLATFORM_DIR ${FMODEX_DIR}/win32/src)
+    file(GLOB FMODEX_PLATFORM_SOURCES CONFIGURE_DEPENDS "${FMODEX_PLATFORM_DIR}/*.cpp" "${FMODEX_PLATFORM_DIR}/asio/*.cpp"
+        "${FMODEX_DIR}/lib/openal/utils/*.cpp")
+endif ()
+
 file(GLOB FMODEX_SOURCES CONFIGURE_DEPENDS
     "${FMODEX_DIR}/src/*.cpp"
-    "${FMODEX_DIR}/win32/src/*.cpp"
-    "${FMODEX_DIR}/win32/src/asio/*.cpp"
     "${FMODEX_DIR}/lib/ogg_vorbis/ogg/src/*.c"
     "${FMODEX_DIR}/lib/ogg_vorbis/vorbis/lib/*.c"
     "${FMODEX_FLAC_DIR}/src/libFLAC/*.c"
-    "${FMODEX_DIR}/lib/openal/utils/*.cpp"
     "${FMODEX_DIR}/lib/freeverb/*.cpp"
     "${FMODEX_DIR}/lib/sfx/foreverb/*.cpp"
 )
 
-add_library(fmodex STATIC ${FMODEX_SOURCES})
+add_library(fmodex STATIC ${FMODEX_SOURCES} ${FMODEX_PLATFORM_SOURCES})
 
 target_include_directories(fmodex
     PUBLIC
         ${FMODEX_DIR}/src
     PRIVATE
-        ${FMODEX_DIR}/win32/src
+        ${FMODEX_PLATFORM_DIR}
         ${FMODEX_DIR}/lib/ogg_vorbis/ogg/include
         ${FMODEX_DIR}/lib/ogg_vorbis/vorbis/include
         ${FMODEX_DIR}/lib/ogg_vorbis/vorbis/lib
@@ -41,18 +49,24 @@ target_compile_definitions(fmodex
         FLAC__HAS_OGG=1
 )
 
-target_link_libraries(fmodex
-    INTERFACE
-        winmm
-        ws2_32
-        msacm32
-)
+if (FMODEX_WEBAUDIO_JS)
+    target_link_options(fmodex INTERFACE "--js-library=${FMODEX_WEBAUDIO_JS}")
+endif ()
+
+if (WIN32)
+    target_link_libraries(fmodex
+        INTERFACE
+            winmm
+            ws2_32
+            msacm32
+    )
+endif ()
 
 if (MSVC)
     target_compile_options(fmodex PRIVATE /MP)
 endif ()
 
-if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+if (WOWDECOMP_ARCH_32)
     target_compile_definitions(fmodex
         PRIVATE
             FLAC__CPU_IA32

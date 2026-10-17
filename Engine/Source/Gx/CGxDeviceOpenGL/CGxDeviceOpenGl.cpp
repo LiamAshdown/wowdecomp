@@ -1396,6 +1396,8 @@ void CGxDeviceOpenGl::DeviceDestroyPoolAPI() {
     }
 }
 
+#if !defined(WOWDECOMP_PLATFORM_WEB) // Win32/WGL window and context code; the web build uses Web/CGxDeviceOpenGlWeb.cpp
+
 // VERIFY: 63ba8840 manual
 // OFFSET: 0x0068C670
 static void CreateDummyContext() {
@@ -1599,12 +1601,16 @@ void CGxDeviceOpenGl::DeviceDestroy() {
     s_deviceChanging = 0;
 }
 
+#endif
+
 // VERIFY: 2fa3d260 auto
 // OFFSET: 0x0068CC00
 void CGxDeviceOpenGl::DeviceSetBaseMipLevel(uint32_t level) {
     this->ITexForceRecreation();
     CGxDevice::DeviceSetBaseMipLevel(level);
 }
+
+#if !defined(WOWDECOMP_PLATFORM_WEB) // Win32/WGL window and context code; the web build uses Web/CGxDeviceOpenGlWeb.cpp
 
 // VERIFY: 01f4b10a auto
 // OFFSET: 0x0068CC20
@@ -1626,11 +1632,15 @@ void CGxDeviceOpenGl::DeviceSetGamma(const CGxGammaRamp& ramp) {
     }
 }
 
+#endif
+
 // VERIFY: f2dbfa69 auto
 // OFFSET: 0x0068CCA0
 void* CGxDeviceOpenGl::DeviceWindow() {
     return this->m_hwnd;
 }
+
+#if !defined(WOWDECOMP_PLATFORM_WEB) // Win32/WGL window and context code; the web build uses Web/CGxDeviceOpenGlWeb.cpp
 
 // VERIFY: 8a9d5950 manual
 // OFFSET: 0x0068CCB0
@@ -2083,11 +2093,15 @@ static HGLRC CreateGLContext(HDC dc, const CGxFormat& format) {
     return wglCreateContext(dc);
 }
 
+#endif
+
 // VERIFY: b403578c manual
 // OFFSET: 0x0069E140
 void CGxDeviceOpenGl::IShaderConstantsClear() {
     this->ShaderConstantsClear();
 }
+
+#if !defined(WOWDECOMP_PLATFORM_WEB) // Win32/WGL window and context code; the web build uses Web/CGxDeviceOpenGlWeb.cpp
 
 // VERIFY: 80ad3a5a auto
 // OFFSET: 0x0068CF60
@@ -2834,6 +2848,8 @@ int32_t CGxDevice::OpenGlAdapterFormats(TSGrowableArray<CGxFormat>& formats) {
 
     return formats.Count() != 0;
 }
+
+#endif
 
 // VERIFY: f1a2e45f auto
 // OFFSET: 0x006A5A00
@@ -3889,6 +3905,8 @@ void CGxDeviceOpenGl::SceneClear(uint32_t mask, CImVector color) {
     this->DsSet(Ds_ColorMask, colorMask, 0);
 }
 
+#if !defined(WOWDECOMP_PLATFORM_WEB) // Win32/WGL window and context code; the web build uses Web/CGxDeviceOpenGlWeb.cpp
+
 // VERIFY: a13dc98e manual
 // OFFSET: 0x0069E220
 void CGxDeviceOpenGl::ScenePresent() {
@@ -3911,12 +3929,14 @@ void CGxDeviceOpenGl::ScenePresent() {
     this->IShaderConstantsClear();
 }
 
+#endif
+
 // VERIFY: 51ea4b76 manual
 // OFFSET: 0x0069E280
 void CGxDeviceOpenGl::IXformSetProjection(const C44Matrix& matrix) {
     C44Matrix projection(matrix.a0, matrix.a1, matrix.a2, matrix.a3, matrix.b0, matrix.b1, matrix.b2, matrix.b3, -matrix.c0, -matrix.c1, -matrix.c2, -matrix.c3, matrix.d0, matrix.d1, matrix.d2, matrix.d3);
 
-    if (static_cast<int32_t>(this->m_appMasterEnables) >= 0 && 1.0f != matrix.d3) {
+    if (!(this->m_appMasterEnables & (1 << GxMasterEnable_NormalProjection)) && 1.0f != matrix.d3) {
         C44Matrix scale(0.2f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
         projection = projection * scale;
     }

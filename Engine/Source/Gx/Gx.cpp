@@ -115,7 +115,12 @@ static int (*s_drawListSorters[GxuSorts_Last])(const void*, const void*) = { Dra
 // VERIFY: 0b88acbc auto
 // OFFSET: 0x008C8DE0
 EGxApi GxDefaultApi() {
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // WebGL2 through the OpenGL device's GL shim.
+    return GxApi_OpenGl;
+#else
     return GxApi_D3d9;
+#endif
 }
 
 // VERIFY: cef2b995 auto
@@ -123,8 +128,10 @@ EGxApi GxDefaultApi() {
 int32_t GxApiSupported(EGxApi api) {
     switch (api) {
         case GxApi_OpenGl:
+#if !defined(WOWDECOMP_PLATFORM_WEB)
         case GxApi_D3d9:
         case GxApi_D3d9Ex:
+#endif
             return 1;
 
         default:
@@ -185,6 +192,7 @@ CGxDevice* CreateGxDevice(EGxApi api, GxWindowProc windowProc, const CGxFormat& 
             g_theGxDevicePtr = device;
             break;
 
+#if !defined(WOWDECOMP_PLATFORM_WEB)
         case GxApi_D3d9:
             device = CreateCGxDeviceD3d();
             g_theGxDevicePtr = device;
@@ -194,6 +202,7 @@ CGxDevice* CreateGxDevice(EGxApi api, GxWindowProc windowProc, const CGxFormat& 
             device = CreateCGxDeviceD3d9Ex();
             g_theGxDevicePtr = device;
             break;
+#endif
 
         default:
             device = g_theGxDevicePtr;

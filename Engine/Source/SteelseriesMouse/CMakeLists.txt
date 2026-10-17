@@ -9,8 +9,10 @@ target_include_directories(SteelseriesMouse
         ${CMAKE_SOURCE_DIR}
 )
 
-target_link_libraries(SteelseriesMouse
-    PUBLIC
-        hid
-        setupapi
-)
+if (WIN32)
+    target_link_libraries(SteelseriesMouse
+        PUBLIC
+            hid
+            setupapi
+    )
+endif ()

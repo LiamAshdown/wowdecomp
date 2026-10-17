@@ -410,3 +410,12 @@ FodyWeavers.xsd
 
 # Local Visual Studio CMake settings (absolute paths to re/tools)
 CMakeSettings.json
+
+# Build trees (CMake/Emscripten). Outputs land in bin/ (ignored above): bin/Win, bin/Web.
+build/
+
+# Browser port: local secrets and user data (Tools/Bridge, Tools/AzerothCore)
+Tools/AzerothCore/test-account.env
+Tools/Bridge/bridge.env
+Tools/Deploy/.env
+Tools/Bridge/userdata/

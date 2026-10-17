@@ -58,10 +58,10 @@ class CDataStore {
     CDataStore& Set(uint32_t pos, uint32_t val);
 };
 
-template <uint32_t size>
+template <uint32_t cacheSize>
 class CDataStoreCache : public CDataStore {
     public:
-    /* 0018 */ uint8_t m_cache[size];
+    /* 0018 */ uint8_t m_cache[cacheSize];
 
     void InternalInitialize(uint8_t*& data, uint32_t& base, uint32_t& alloc) override;
     void InternalDestroy(uint8_t*& data, uint32_t& base, uint32_t& alloc) override;

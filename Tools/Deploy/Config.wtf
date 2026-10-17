@@ -1,0 +1,8 @@
+SET locale "enUS"
+SET realmlist "127.0.0.1"
+SET readTOS "1"
+SET readEULA "1"
+SET readTerminationWithoutNotice "1"
+SET Sound_EnableAllSound "1"
+SET Sound_MusicVolume "0.4"
+SET Sound_AmbienceVolume "0.6"

@@ -36,6 +36,14 @@
     /*#define PLATFORM_WINDOWS_PS3MODE*/      /* Emulation of PS3 (uses alternate mixer) */
     /*#define FMOD_SUPPORT_HARDWAREXM*/       /* Emulation of PS2/PSP hardware xm support (uses dsound buffers) */
 
+#elif defined(__EMSCRIPTEN__)
+
+    /* wowdecomp browser build: the Linux code paths with an emscripten/src platform layer */
+    #define PLATFORM_LINUX
+    #define PLATFORM_EMSCRIPTEN
+    #define PLATFORM_ENDIAN_LITTLE
+    #define PLATFORM_32BIT
+
 #elif defined(__linux__)
 
     #define PLATFORM_LINUX
@@ -398,6 +406,12 @@
         #undef FMOD_SUPPORT_XM
         #undef FMOD_SUPPORT_WASAPI
     #endif
+
+#elif defined(PLATFORM_EMSCRIPTEN)
+
+    #undef  FMOD_SUPPORT_ASF
+    #undef  FMOD_SUPPORT_MYEARS
+    #undef  FMOD_SUPPORT_CDDA
 
 #elif defined(PLATFORM_LINUX64)
 

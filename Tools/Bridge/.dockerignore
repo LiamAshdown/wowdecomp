@@ -1,0 +1,4 @@
+node_modules
+userdata
+bridge.env
+*.test.mjs

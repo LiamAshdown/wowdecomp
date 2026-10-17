@@ -14,6 +14,23 @@
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Storm/H/storm.h"
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+#include <emscripten.h>
+
+struct WebSchedulerFrame {
+    uint32_t m_hThread;
+    int32_t m_watchdogStarted;
+};
+
+static void WebSchedulerPass(void* arg) {
+    WebSchedulerFrame* frame = static_cast<WebSchedulerFrame*>(arg);
+
+    if (SchedulerThreadProcProcess(frame->m_hThread, &frame->m_watchdogStarted)) {
+        emscripten_cancel_main_loop();
+    }
+}
+#endif
+
 namespace Event {
     // STATIC: 0x00AC0DC0
     volatile long s_threadListContention = -1;
@@ -688,6 +705,17 @@ uint32_t STORMAPI SchedulerThreadProc(void* mainThread) {
     char name[64];
     SStrPrintf(name, sizeof(name), "Engine %x", SGetCurrentThreadId());
     OsCallInitialize(name);
+
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // One scheduler pass per animation frame: the WebGL canvas (an OffscreenCanvas owned by this pthread) is only
+    // presented when the thread returns to the browser. This never returns; the page's lifetime is the game's.
+    if (mainThread) {
+        static WebSchedulerFrame s_frame;
+        s_frame.m_hThread = hThread;
+        s_frame.m_watchdogStarted = watchdogStarted;
+        emscripten_set_main_loop_arg(WebSchedulerPass, &s_frame, 0, true);
+    }
+#endif
 
     while (!SchedulerThreadProcProcess(hThread, &watchdogStarted)) {
     }

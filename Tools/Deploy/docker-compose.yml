@@ -1,0 +1,104 @@
+# Hosted realm: AzerothCore (prebuilt acore images) plus the bridge, which serves the browser client and relays its
+# WebSocket connections to the auth and world servers. Nothing here publishes a port: the reverse proxy in front
+# (Caddy, see Caddyfile) reaches the bridge over the EDGE_NETWORK docker network.
+#
+#   cp .env.example .env    # then fill in the secrets
+#   docker compose up -d
+#
+# Host directories (DATA_DIR): client/ (the client's Data/, Interface/ and WTF/Config.wtf), web/ (Wow.js, Wow.wasm),
+# userdata/ (written by the bridge, owned by uid 1000).
+name: lasthavens
+
+x-ac-db: &ac-db
+  AC_LOGIN_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD:?};acore_auth"
+  AC_WORLD_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD:?};acore_world"
+  AC_CHARACTER_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD:?};acore_characters"
+  AC_DATA_DIR: "/azerothcore/env/dist/data"
+  AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+
+services:
+  ac-database:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?}
+    command: --innodb-buffer-pool-size=256M   # small VPS
+    volumes:
+      - ac-database:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: "/usr/bin/mysql --user=root --password=$$MYSQL_ROOT_PASSWORD --execute \"SHOW DATABASES;\""
+      interval: 5s
+      timeout: 10s
+      retries: 60
+
+  ac-db-import:
+    image: acore/ac-wotlk-db-import:${AC_IMAGE_TAG:-master}
+    environment: *ac-db
+    volumes:
+      - ac-logs:/azerothcore/env/dist/logs
+    depends_on:
+      ac-database:
+        condition: service_healthy
+
+  ac-client-data-init:
+    image: acore/ac-wotlk-client-data:${AC_IMAGE_TAG:-master}
+    volumes:
+      - ac-client-data:/azerothcore/env/dist/data
+
+  ac-authserver:
+    image: acore/ac-wotlk-authserver:${AC_IMAGE_TAG:-master}
+    environment:
+      <<: *ac-db
+      AC_TEMP_DIR: "/azerothcore/env/dist/temp"
+    volumes:
+      - ac-logs:/azerothcore/env/dist/logs
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      ac-db-import:
+        condition: service_completed_successfully
+
+  ac-worldserver:
+    image: acore/ac-wotlk-worldserver:${AC_IMAGE_TAG:-master}
+    environment:
+      <<: *ac-db
+      AC_WARDEN_ENABLED: "0"   # wowdecomp's Warden client is a stub and never answers
+    volumes:
+      - ac-logs:/azerothcore/env/dist/logs
+      - ac-client-data:/azerothcore/env/dist/data:ro
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      ac-db-import:
+        condition: service_completed_successfully
+      ac-client-data-init:
+        condition: service_completed_successfully
+
+  bridge:
+    build: ../Bridge
+    environment:
+      WOW_BRIDGE_DB: "mysql://wowbridge:${BRIDGE_DB_PASSWORD:?}@ac-database:3306/acore_auth"
+      WOW_BRIDGE_INVITE: ${INVITE_CODE:?}
+    volumes:
+      - ${DATA_DIR:-/opt/lastvale}/client:/data/client:ro
+      - ${DATA_DIR:-/opt/lastvale}/web:/data/web:ro
+      - ${DATA_DIR:-/opt/lastvale}/userdata:/data/userdata
+    restart: unless-stopped
+    networks:
+      default:
+      edge:
+        aliases: [lasthavens-bridge]
+    depends_on:
+      ac-database:
+        condition: service_healthy
+
+volumes:
+  ac-database:
+  ac-client-data:
+  ac-logs:
+
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:?}

@@ -1,0 +1,14 @@
+# Site blocks for the reverse proxy on EDGE_NETWORK. Cloudflare proxies the domain (SSL/TLS mode "Full"), so the
+# public certificate is Cloudflare's and this hop only needs Caddy's internal one.
+lasthavens.com {
+	tls internal
+	reverse_proxy lasthavens-bridge:8080 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+}
+
+# The invite cookie is per host, so there is one host.
+www.lasthavens.com {
+	tls internal
+	redir https://lasthavens.com{uri}
+}

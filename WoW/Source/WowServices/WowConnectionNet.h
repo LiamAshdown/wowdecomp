@@ -11,7 +11,10 @@
 
 class WowConnectionNet {
     public:
+// Packed like the original (m_lock at 0x15). wasm atomics need natural alignment, so the web build does not pack.
+#if !defined(WOWDECOMP_PLATFORM_WEB)
 #pragma pack(push, 1)
+#endif
     struct WORKER {
         /* 0000 */ WowConnectionNet* m_owner;
         /* 0004 */ SThread m_thread;
@@ -25,7 +28,9 @@ class WowConnectionNet {
 
         WORKER();
     };
+#if !defined(WOWDECOMP_PLATFORM_WEB)
 #pragma pack(pop)
+#endif
 
     /* 0000 */ SThread m_thread;
     /* 0004 */ SEvent m_stopEvent;

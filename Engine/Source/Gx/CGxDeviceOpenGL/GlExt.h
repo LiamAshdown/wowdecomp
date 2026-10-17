@@ -3,8 +3,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#if defined(WOWDECOMP_PLATFORM_WEB)
+#include "Engine/Source/Gx/CGxDeviceOpenGL/Web/GlShim.h"
+#else
 #include <windows.h>
 #include <GL/gl.h>
+#endif
 
 #define GL_TEXTURE0_ARB 0x84C0
 #define GL_MAX_TEXTURE_UNITS_ARB 0x84E2
