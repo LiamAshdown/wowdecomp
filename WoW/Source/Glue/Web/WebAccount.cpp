@@ -614,6 +614,22 @@ end
 -- The login screen's server alert panel (left side) comes from the bridge's server-alert.txt (OsURLDownload, web).
 SERVER_ALERT_URL = "/server-alert.txt"
 
+-- The realm's name in place of the WoW logo, set the way the client sets its own titles: Morpheus (the zone text
+-- font) in the game's gold, outlined, over a line of Friz Quadrata.
+AccountLoginLogo:Hide()
+local title = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
+title:SetFont("Fonts\\MORPHEUS.TTF", 46, "OUTLINE")
+title:SetTextColor(1, 0.82, 0)
+title:SetShadowColor(0, 0, 0, 1)
+title:SetShadowOffset(2, -2)
+title:SetPoint("CENTER", AccountLoginLogo, "CENTER", 0, 10)
+title:SetText("Lasthavens")
+local subtitle = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
+subtitle:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+subtitle:SetTextColor(0.78, 0.88, 1)
+subtitle:SetPoint("TOP", title, "BOTTOM", 0, -2)
+subtitle:SetText("Wrath of the Lich King")
+
 -- Login screen: "Manage Account" opens the dialog instead of a web page, and a "Create Account" button sits above it.
 local manage = AccountLoginManageAccountButton
 manage:SetScript("OnClick", function() WebAccountDialog_Show("signin") end)
