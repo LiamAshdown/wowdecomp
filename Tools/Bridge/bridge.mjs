@@ -180,7 +180,7 @@ async function handleUserData(req, res, rel, o) {
 }
 
 const BLOCK_BYTES = 1 << 20;   // WebVfs kBlockSize
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".json": "application/json" };
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
@@ -221,7 +221,10 @@ const server = createServer(async (req, res) => {
     // The page is always the first request, so it is where a browser gets its cookie.
     let user = userOf(req), extra = {};
     if (user === null && path === "/") [user, extra["Set-Cookie"]] = newUser();
-    if (user === null) return res.writeHead(403, ISOLATION).end();
+    // Page files (one path segment: the page's images, scripts, the link-preview image) need no cookie, so link previews
+    // can fetch them; game data, user data, accounts and the relay do.
+    const pageFile = /^\/[\w.-]+$/.test(path) && path !== "/game-manifest.txt";
+    if (user === null && !pageFile) return res.writeHead(403, ISOLATION).end();
 
     if (path.startsWith("/account/") && await accounts(req, res, path, clientAddress(req))) {
         return;
