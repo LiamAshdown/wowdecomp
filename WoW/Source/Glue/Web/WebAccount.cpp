@@ -618,16 +618,17 @@ SERVER_ALERT_URL = "/server-alert.txt"
 -- font) in the game's gold, outlined, over a line of Friz Quadrata.
 AccountLoginLogo:Hide()
 local title = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
-title:SetFont("Fonts\\MORPHEUS.TTF", 46, "OUTLINE")
+title:SetFont("Fonts\\MORPHEUS.TTF", 72, "OUTLINE")
 title:SetTextColor(1, 0.82, 0)
 title:SetShadowColor(0, 0, 0, 1)
-title:SetShadowOffset(2, -2)
-title:SetPoint("CENTER", AccountLoginLogo, "CENTER", 0, 10)
+title:SetShadowOffset(3, -3)
+-- Left-anchored in the logo's place: centred, the wider text would run off the left edge on narrow windows.
+title:SetPoint("LEFT", AccountLoginLogo, "LEFT", 14, 10)
 title:SetText("Lasthavens")
 local subtitle = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
-subtitle:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+subtitle:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
 subtitle:SetTextColor(0.78, 0.88, 1)
-subtitle:SetPoint("TOP", title, "BOTTOM", 0, -2)
+subtitle:SetPoint("TOP", title, "BOTTOM", 0, 2)
 subtitle:SetText("Wrath of the Lich King")
 
 -- Login screen: "Manage Account" opens the dialog instead of a web page, and a "Create Account" button sits above it.
