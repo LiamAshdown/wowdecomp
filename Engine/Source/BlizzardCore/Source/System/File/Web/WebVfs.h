@@ -3,6 +3,7 @@
 
 #if defined(WOWDECOMP_PLATFORM_WEB)
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,6 +25,10 @@ int fstat(int fd, struct stat* st);
 int stat(const char* path, struct stat* st);
 int access(const char* path, int mode);
 bool IsRemote(int fd);
+
+// The number of game-data blocks fetched over the network so far, as a plain int32 in shared memory the page can
+// read (an atomic underneath): the page keeps its loading screen up while it still moves.
+const int32_t* FetchCounter();
 
 // Writes go to the local (in-memory) file system. Files under WTF/, Cache/ and Screenshots/ that were written are also
 // uploaded to the bridge (PUT /userdata/...) when they are closed, and unlink/rename are mirrored with DELETE, so they

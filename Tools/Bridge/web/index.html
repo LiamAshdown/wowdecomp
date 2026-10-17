@@ -65,12 +65,15 @@
     let creep;
     const fail = (text) => { clearInterval(creep); status.textContent = text; };
 
-    // Called by the client once the login screen is loaded (WebAccount.cpp).
+    // Called by the client while the login scene streams in (each new block of game data), then once it has gone quiet
+    // (WebAccount.cpp). The cap keeps a slow connection from showing the loading screen forever.
+    window.wowLoading = () => setProgress(progress + (0.99 - progress) * 0.03);
     window.wowLoaded = () => {
         clearInterval(creep);
         setProgress(1);
         setTimeout(() => loading.classList.add("done"), 200);
     };
+    setTimeout(() => window.wowLoaded(), 180_000);
 
     if (!crossOriginIsolated) {
         fail("This page has to be served by the Lasthavens bridge.");

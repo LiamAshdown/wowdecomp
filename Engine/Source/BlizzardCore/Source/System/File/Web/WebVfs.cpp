@@ -2,6 +2,7 @@
 
 #include "Engine/Source/BlizzardCore/Source/System/File/Web/WebVfs.h"
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -160,6 +161,8 @@ std::unordered_set<std::string> s_deleted;
 const int64_t kMaxPersistBytes = 64 << 20;
 
 std::mutex s_cacheLock;
+// Blocks fetched over the network so far (FetchCounter).
+std::atomic<int32_t> s_fetchCount;
 std::list<Block> s_lru;
 std::unordered_map<uint64_t, std::list<Block>::iterator> s_blocks;
 
@@ -374,6 +377,8 @@ BlockData GetBlock(int file, int64_t index) {
         return nullptr;
     }
 
+    s_fetchCount.fetch_add(1, std::memory_order_relaxed);
+
     if ((!immutable || WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) != count)
         && WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) != count) {
         return nullptr;
@@ -468,6 +473,11 @@ void FillRemoteStat(int64_t size, bool isDir, struct stat* st) {
     st->st_nlink = 1;
 }
 
+}
+
+const int32_t* WebVfs::FetchCounter() {
+    static_assert(sizeof(s_fetchCount) == sizeof(int32_t) && std::atomic<int32_t>::is_always_lock_free);
+    return reinterpret_cast<const int32_t*>(&s_fetchCount);
 }
 
 bool WebVfs::IsRemote(int fd) {

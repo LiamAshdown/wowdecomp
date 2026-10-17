@@ -16,6 +16,7 @@
 #include <vector>
 #include <emscripten.h>
 #include "Engine/Source/BlizzardCore/Source/Packages/Util/SHA1.h"
+#include "Engine/Source/BlizzardCore/Source/System/File/Web/WebVfs.h"
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "Engine/Source/Os/OsSecureRandom.h"
 #include "Engine/Source/Storm/H/storm.h"
@@ -687,10 +688,24 @@ void WebAccountInitialize() {
 
     FrameScript_Execute(kAccountUi, "WebAccount.lua", nullptr);
 
-    // The glue screens are loaded: the page can drop its loading screen (Tools/Bridge/web/index.html).
+    // The glue frames are loaded, but the login scene (model, textures, music) still streams in for a while. The page
+    // (Tools/Bridge/web/index.html) keeps its loading screen up until no game data has been fetched for 1.5 s.
     MAIN_THREAD_ASYNC_EM_ASM({
-        if (window.wowLoaded) window.wowLoaded();
-    });
+        if (!window.wowLoaded) return;
+        var last = -1;
+        var quiet = 0;
+        var timer = setInterval(function() {
+            var count = HEAP32[$0 >> 2];
+            if (count !== last) {
+                last = count;
+                quiet = 0;
+                if (window.wowLoading) window.wowLoading();
+            } else if ((quiet += 250) >= 1500) {
+                clearInterval(timer);
+                window.wowLoaded();
+            }
+        }, 250);
+    }, WebVfs::FetchCounter());
 }
 
 #endif
