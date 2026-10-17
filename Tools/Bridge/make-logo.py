@@ -11,8 +11,9 @@ Open Graph tags point at (index.html), and favicon.svg (the icon below), into th
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <tga> <web dir>/loading-0.png <web dir>/og-image.jpg
 
 With Friz Quadrata (Fonts\\FRIZQT__.TTF) and an output directory it also writes the Discord server's 960 x 540 banner
-and 512 x 512 icon (discord-banner.png, discord-icon.png) from the same painting, the Northrend one (loading-0.png).
-They are uploaded to Discord by hand, so they go anywhere outside the repository:
+and 512 x 512 icon (discord-banner.png, discord-icon.png) and the 468 x 60 banner for server top lists
+(toplist-banner.png) from the same painting, the Northrend one (loading-0.png). They are uploaded by hand, so they go
+anywhere outside the repository:
 
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <tga> <web dir>/loading-0.png <web dir>/og-image.jpg FRIZQT__.TTF <dir>
 """
@@ -33,6 +34,7 @@ OG_WIDTH, OG_HEIGHT = 1200, 630
 SUBTITLE = "Wrath of the Lich King"
 BANNER_WIDTH, BANNER_HEIGHT = 960, 540
 ICON_SIZE = 512
+TOPLIST_WIDTH, TOPLIST_HEIGHT = 468, 60
 
 
 def render_title(font_path, text=TEXT, width=WIDTH, height=HEIGHT, size=SIZE, outline=OUTLINE):
@@ -155,6 +157,27 @@ def render_icon(font_path, painting_path):
     return icon.convert("RGB")
 
 
+def render_toplist(title, subtitle_font_path, painting_path):
+    # The 468 x 60 banner server top lists show: a band of the painting through Arthas' eyes (below the WoW logo),
+    # darkened to the right of his face, with the title and two lines of Friz Quadrata.
+    painting = Image.open(painting_path).convert("RGB").resize((TOPLIST_WIDTH, TOPLIST_WIDTH * 10 // 16), Image.LANCZOS)
+    banner = painting.crop((0, 66, TOPLIST_WIDTH, 66 + TOPLIST_HEIGHT)).convert("RGBA")
+    shade = Image.new("L", banner.size, 0)
+    draw = ImageDraw.Draw(shade)
+    for x in range(TOPLIST_WIDTH):
+        draw.line([(x, 0), (x, TOPLIST_HEIGHT)], fill=round(60 + 150 * min(1.0, max(0.0, (x - 90) / 60))))
+    banner = Image.alpha_composite(banner, Image.merge("RGBA", [Image.new("L", banner.size, 0)] * 3 + [shade]))
+
+    banner.alpha_composite(title.resize((216, 54), Image.LANCZOS), (108, 1))
+    font = ImageFont.truetype(subtitle_font_path, 14)
+    draw = ImageDraw.Draw(banner)
+    for i, (line, color) in enumerate([("3.3.5a PvP  ·  2x XP", (255, 210, 64)), ("Play in your browser", (199, 224, 255))]):
+        left, _, right, _ = font.getbbox(line, stroke_width=1)
+        draw.text((TOPLIST_WIDTH - 10 - right, 11 + i * 20), line, font=font, fill=color, stroke_width=1, stroke_fill=(0, 0, 0))
+    draw.rectangle((0, 0, TOPLIST_WIDTH - 1, TOPLIST_HEIGHT - 1), outline=(120, 90, 40))
+    return banner.convert("RGB")
+
+
 def favicon_svg(icon):
     # The page links favicon.svg; this one, in the web directory, is served before the committed one in
     # Tools/Bridge/web (bridge.mjs, webDirs), which stays as the fallback. Cropped close to the letter so it reads at
@@ -179,3 +202,4 @@ if __name__ == "__main__":
     if len(sys.argv) == 7:
         render_banner(title, sys.argv[5], sys.argv[3]).save(f"{sys.argv[6]}/discord-banner.png", optimize=True)
         icon.save(f"{sys.argv[6]}/discord-icon.png", optimize=True)
+        render_toplist(title, sys.argv[5], sys.argv[3]).save(f"{sys.argv[6]}/toplist-banner.png", optimize=True)
