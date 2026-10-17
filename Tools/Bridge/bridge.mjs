@@ -34,7 +34,8 @@ const host = args.host ?? "127.0.0.1";
 const port = Number(args.port ?? 8080);
 const gameDir = resolve(root, args.game ?? "bin/Win");
 const userDir = resolve(root, args.userdata ?? "Tools/Bridge/userdata");
-const webDirs = [resolve(root, "Tools/Bridge/web"), resolve(root, args.web ?? "bin/Web")];
+// The build output first, so a deployment can override the page files there (e.g. server-alert.txt).
+const webDirs = [resolve(root, args.web ?? "bin/Web"), resolve(root, "Tools/Bridge/web")];
 // "ip:port" the client asks for -> "host:port" actually connected to.
 const allow = new Map((args.allow ?? "127.0.0.1:3724,127.0.0.1:8085").split(",").map((e) => {
     const [from, to = from] = e.split("=");
@@ -173,7 +174,7 @@ async function handleUserData(req, res, rel, o) {
     }
 }
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml" };
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",

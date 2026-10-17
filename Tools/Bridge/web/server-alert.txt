@@ -1,0 +1,14 @@
+SERVERALERT:
+<html><body>
+<h1>Welcome to Lasthavens</h1>
+<br/>
+<p>A Wrath of the Lich King realm that runs right in your browser.</p>
+<br/>
+<h2>Getting started</h2>
+<p>New here? Click Create Account, then log in with the name and password you picked.</p>
+<br/>
+<h2>Latest changes</h2>
+<p>- Clouds and the night sky render properly</p>
+<p>- The game no longer stretches on wide screens</p>
+<p>- Settings and keybindings are saved between visits</p>
+</body></html>

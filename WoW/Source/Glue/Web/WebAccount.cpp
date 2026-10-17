@@ -611,6 +611,9 @@ function WebAccountDialog_Show(mode)
     if mode == "signin" and fields[1]:GetText() ~= "" then fields[2]:SetFocus() end
 end
 
+-- The login screen's server alert panel (left side) comes from the bridge's server-alert.txt (OsURLDownload, web).
+SERVER_ALERT_URL = "/server-alert.txt"
+
 -- Login screen: "Manage Account" opens the dialog instead of a web page, and a "Create Account" button sits above it.
 local manage = AccountLoginManageAccountButton
 manage:SetScript("OnClick", function() WebAccountDialog_Show("signin") end)
