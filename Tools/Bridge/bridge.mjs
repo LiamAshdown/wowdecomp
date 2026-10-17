@@ -7,9 +7,12 @@
 //                        directory (never in --game); overlay files are listed in the manifest and win over --game files
 //   /tcp/<ip>/<port>     WebSocket <-> TCP relay, only to the allowlisted AzerothCore auth/world addresses
 //   /account/*           in-client account creation and password changes (account.mjs; DB login in bridge.env)
+//   /addons/library.txt  the AddOn Library's catalog; each browser's installed library addons are in its manifest
+//                        under Interface/AddOns/ (addons.mjs)
 //
 //   node Tools/Bridge/bridge.mjs [--host 127.0.0.1] [--port 8080] [--game bin/Win] [--userdata Tools/Bridge/userdata]
-//                                [--web bin/Web] [--allow 127.0.0.1:3724,127.0.0.1:8085] [--trace]
+//                                [--web bin/Web] [--addons Tools/Bridge/addons] [--allow 127.0.0.1:3724,127.0.0.1:8085]
+//                                [--trace]
 //
 // An --allow entry may name another target, "127.0.0.1:3724=ac-authserver:3724", so the addresses the client knows
 // (realmlist.wtf and the realmlist table) stay 127.0.0.1 while the servers live elsewhere (Tools/Deploy).
@@ -27,6 +30,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account.mjs";
 import { createAdmin } from "./admin.mjs";
+import { catalogText, installedNames, libraryFile, LIST_FILE, loadLibrary, manifestLines } from "./addons.mjs";
 import { ALLOWED_DIRS, MAX_FILE_BYTES, userPath } from "./userdata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -40,6 +44,7 @@ const host = args.host ?? "127.0.0.1";
 const port = Number(args.port ?? 8080);
 const gameDir = resolve(root, args.game ?? "bin/Win");
 const userDir = resolve(root, args.userdata ?? "Tools/Bridge/userdata");
+const addonsDir = resolve(root, args.addons ?? "Tools/Bridge/addons");
 // The build output first, so a deployment can override the page files there (e.g. server-alert.txt).
 const webDirs = [resolve(root, args.web ?? "bin/Web"), resolve(root, "Tools/Bridge/web")];
 // "ip:port" the client asks for -> "host:port" actually connected to.
@@ -101,13 +106,25 @@ function walkFiles(dir, base, files, skip = () => false) {
 
 const baseFiles = walkFiles(gameDir, gameDir, new Map(), (dir, name) => dir === gameDir && SKIP_DIRS.has(name.toLowerCase()));
 
+// The AddOn Library, read once at startup like the game files (restart the bridge after changing it). An addon the game
+// directory already ships is left out of it.
+const shippedAddOns = new Set();
+for (const p of baseFiles.keys()) {
+    const m = /^interface\/addons\/([^/]+)\//i.exec(p);
+    if (m) shippedAddOns.add(m[1].toLowerCase());
+}
+const library = existsSync(addonsDir)
+    ? loadLibrary(addonsDir, readdirSync(addonsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name),
+        (dir) => walkFiles(dir, dir, new Map()), (file) => readFileSync(file, "utf8"), shippedAddOns)
+    : new Map();
+
 // User-data overlays, one per user id ("" = the shared one in userDir itself): rel path -> size, plus lowercase -> rel
 // so a differently-cased write reuses the existing name.
 const overlays = new Map();
 function overlayFor(id) {
     let o = overlays.get(id);
     if (o) return o;
-    o = { dir: id ? join(userDir, id) : userDir, files: new Map(), lower: new Map(), manifest: null };
+    o = { dir: id ? join(userDir, id) : userDir, files: new Map(), lower: new Map(), manifest: null, installed: null };
     for (const dirName of ALLOWED_DIRS) {
         const dir = join(o.dir, dirName);
         if (existsSync(dir)) walkFiles(dir, o.dir, o.files);
@@ -117,12 +134,27 @@ function overlayFor(id) {
     return o;
 }
 
+// The overlay's installed library addons (its LIST_FILE), cached until the overlay changes.
+function installedOf(o) {
+    if (o.installed === null) {
+        const key = o.lower.get(LIST_FILE.toLowerCase());
+        let text = "";
+        try {
+            if (key) text = readFileSync(join(o.dir, key), "utf8");
+        } catch {}
+        o.installed = installedNames(text, library);
+    }
+    return o.installed;
+}
+
 // Overlay wins over a game file of the same path (compared case-insensitively, the game directory is a Windows one).
+// Installed library addons collide with neither: the overlay has no Interface/, and shipped names are not in the library.
 function getManifestText(o) {
     if (o.manifest === null) {
         const lines = [];
         for (const [p, size] of baseFiles) if (!o.lower.has(p.toLowerCase())) lines.push(`${size}\t${p}`);
         for (const [p, size] of o.files) lines.push(`${size}\t${p}`);
+        lines.push(...manifestLines(library, installedOf(o)));
         o.manifest = lines.join("\n") + "\n";
     }
     return o.manifest;
@@ -131,6 +163,8 @@ function getManifestText(o) {
 // Resolves a /game/ path to { file, size }, or null.
 function lookupGameFile(o, rel) {
     if (o.files.has(rel)) return { file: join(o.dir, rel), size: o.files.get(rel) };
+    const addon = libraryFile(library, installedOf(o), rel);
+    if (addon) return { file: join(addonsDir, addon.path), size: addon.size };
     const size = baseFiles.get(rel);
     if (size === undefined || o.lower.has(rel.toLowerCase())) return null;
     return { file: join(gameDir, rel), size };
@@ -175,6 +209,7 @@ async function handleUserData(req, res, rel, o) {
             o.lower.set(key.toLowerCase(), key);
         }
         o.manifest = null;
+        o.installed = null;
         res.writeHead(204, ISOLATION).end();
     } catch (e) {
         console.error(`userdata ${req.method} ${key}: ${e.message}`);
@@ -245,22 +280,31 @@ const server = createServer(async (req, res) => {
         return;
     }
 
+    if (path === "/addons/library.txt") {
+        res.writeHead(200, { ...ISOLATION, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" })
+            .end(catalogText(library, installedOf(overlayFor(user))));
+        return;
+    }
+
     if (path.startsWith("/userdata/")) return handleUserData(req, res, path.slice("/userdata/".length), overlayFor(user));
 
-    // /blocks/<path>/<size>-<index>.bin: one 1 MB block of a shipped game file (Data/ only, never a user-data file),
-    // cacheable for a year by the browser and the CDN (.bin is an extension Cloudflare caches). WebVfs fetches these and
-    // falls back to /game/ Range requests. ponytail: the URL only changes with the file's size; replacing a file with
-    // a same-sized one needs a cache purge.
+    // /blocks/<path>/<size>-<index>.bin: one 1 MB block of a shipped game file under Data/ or Interface/AddOns/, or of a
+    // library addon (never a user-data file), cacheable by the browser and the CDN (.bin is an extension Cloudflare
+    // caches). WebVfs fetches these and falls back to /game/ Range requests. Every library addon is served to anyone, as
+    // anyone may install it. ponytail: the URL only changes with the file's size; replacing a file with a same-sized one
+    // needs a cache purge, so library blocks (re-fetched with fetch-addons.mjs) are only kept for a day.
     if (path.startsWith("/blocks/")) {
-        const m = /^\/blocks\/(Data\/.+)\/(\d+)-(\d+)\.bin$/i.exec(path);
-        const size = m ? baseFiles.get(m[1]) : undefined;
+        const m = /^\/blocks\/((?:Data|Interface\/AddOns)\/.+)\/(\d+)-(\d+)\.bin$/i.exec(path);
+        const addon = m && !baseFiles.has(m[1]) ? libraryFile(library, library.keys(), m[1]) : null;
+        const file = addon ? join(addonsDir, addon.path) : m && join(gameDir, m[1]);
+        const size = addon ? addon.size : m ? baseFiles.get(m[1]) : undefined;
         const start = m ? Number(m[3]) * BLOCK_BYTES : 0;
         if (size === undefined || size !== Number(m[2]) || start >= size) return res.writeHead(404, ISOLATION).end();
         const end = Math.min(start + BLOCK_BYTES, size) - 1;
         res.writeHead(200, { ...ISOLATION, "Content-Type": "application/octet-stream", "Content-Length": end - start + 1,
-            "Cache-Control": "public, max-age=31536000, immutable" });
+            "Cache-Control": addon ? "public, max-age=86400" : "public, max-age=31536000, immutable" });
         if (req.method === "HEAD") return res.end();
-        return createReadStream(join(gameDir, m[1]), { start, end }).pipe(res);
+        return createReadStream(file, { start, end }).pipe(res);
     }
 
     if (path.startsWith("/game/")) {
@@ -356,6 +400,6 @@ server.on("upgrade", (req, socket) => {
 });
 
 server.listen(port, host, () => {
-    console.log(`bridge: http://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  userdata=${userDir}${secret ? " (per browser)" : ""}`
+    console.log(`bridge: http://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  addons=${library.size}  userdata=${userDir}${secret ? " (per browser)" : ""}`
         + `  relay=${[...allow].map(([a, b]) => a === b ? a : `${a}=${b}`).join(",")}`);
 });
