@@ -79,7 +79,7 @@ services:
     build: ../Bridge
     environment:
       WOW_BRIDGE_DB: "mysql://wowbridge:${BRIDGE_DB_PASSWORD:?}@ac-database:3306/acore_auth"
-      WOW_BRIDGE_INVITE: ${INVITE_CODE:?}
+      WOW_BRIDGE_SECRET: ${BRIDGE_SECRET:?}
     volumes:
       - ${DATA_DIR:-/opt/lastvale}/client:/data/client:ro
       - ${DATA_DIR:-/opt/lastvale}/web:/data/web:ro

@@ -14,9 +14,9 @@
 // An --allow entry may name another target, "127.0.0.1:3724=ac-authserver:3724", so the addresses the client knows
 // (realmlist.wtf and the realmlist table) stay 127.0.0.1 while the servers live elsewhere (Tools/Deploy).
 //
-// With WOW_BRIDGE_INVITE set (a hosted bridge) every request needs the cookie that /?invite=<code> hands out, and
-// each cookie gets its own user-data overlay (userdata/<id>/), the browser equivalent of a separate WoW install.
-// Without it (local) there is one shared overlay and no gate.
+// With WOW_BRIDGE_SECRET set (a hosted bridge) the page hands each browser a signed cookie, and each cookie gets its
+// own user-data overlay (userdata/<id>/, at most USER_QUOTA bytes), the browser equivalent of a separate WoW install.
+// Without it (local) there is one shared overlay.
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -51,31 +51,25 @@ if (existsSync(envFile)) {
 }
 const accounts = createAccountService(process.env.WOW_BRIDGE_DB);
 
-// ---- Invite gate (hosted bridge only) ------------------------------------------------------------------------------
+// ---- Per-browser cookie (hosted bridge only) -----------------------------------------------------------------------
 
-const invite = process.env.WOW_BRIDGE_INVITE ?? "";
-const sign = (id) => createHmac("sha256", invite).update(id).digest("hex").slice(0, 32);
-const sameSecret = (a, b) => timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
+const secret = process.env.WOW_BRIDGE_SECRET ?? "";
+const sign = (id) => createHmac("sha256", secret).update(id).digest("hex").slice(0, 32);
+// ponytail: anyone can mint cookies, so the disk bound is per browser only; cap total userdata if strangers abuse it.
+const USER_QUOTA = 128 * 1024 * 1024;
 
-// The request's user id: "" when there is no gate (shared overlay), null when the gate refuses it.
+// The request's user id: "" without a secret (shared overlay), null when it has no valid cookie yet.
 function userOf(req) {
-    if (!invite) return "";
+    if (!secret) return "";
     const m = /(?:^|;\s*)wowuser=([0-9a-f]{32})\.([0-9a-f]{32})(?:;|$)/.exec(req.headers.cookie ?? "");
-    return m && sameSecret(sign(m[1]), m[2]) ? m[1] : null;
+    return m && timingSafeEqual(Buffer.from(sign(m[1])), Buffer.from(m[2])) ? m[1] : null;
 }
 
-// Changing WOW_BRIDGE_INVITE signs every existing cookie out.
-function grantInvite(res) {
+// A new id and the Set-Cookie header that carries it. Changing WOW_BRIDGE_SECRET gives every browser a fresh overlay.
+function newUser() {
     const id = randomBytes(16).toString("hex");
-    res.writeHead(302, {
-        ...ISOLATION, Location: "/",
-        "Set-Cookie": `wowuser=${id}.${sign(id)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`,
-    }).end();
+    return [id, `wowuser=${id}.${sign(id)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`];
 }
-
-const REFUSED = "<!doctype html><meta charset=utf-8><title>Lasthavens</title>"
-    + "<body style='background:#111;color:#ccc;font:16px sans-serif;text-align:center;padding-top:20vh'>"
-    + "This realm is invite only. Open the invite link you were sent.";
 
 // Behind the reverse proxy every connection comes from the proxy, which puts the player's address last here.
 const clientAddress = (req) => req.headers["x-forwarded-for"]?.split(",").pop().trim() || req.socket.remoteAddress;
@@ -134,12 +128,12 @@ function lookupGameFile(o, rel) {
 }
 
 // PUT (whole file) / DELETE /userdata/<path>. The custom header cannot be sent cross-site without a CORS preflight,
-// which this server never answers. Locally the Host check stops DNS rebinding; behind the gate the cookie does (a
-// rebound name has none).
+// which this server never answers. Locally the Host check stops DNS rebinding; hosted, the cookie does (a rebound name
+// has none).
 async function handleUserData(req, res, rel, o) {
     const fail = (code) => res.writeHead(code, { ...ISOLATION, Connection: "close" }).end();
     if (req.method !== "PUT" && req.method !== "DELETE") return fail(405);
-    if (req.headers["x-wow-client"] !== "1" || (!invite && !/^(127\.0\.0\.1|localhost):\d+$/.test(req.headers.host ?? ""))) return fail(403);
+    if (req.headers["x-wow-client"] !== "1" || (!secret && !/^(127\.0\.0\.1|localhost):\d+$/.test(req.headers.host ?? ""))) return fail(403);
     const canonical = userPath(rel);
     if (!canonical) return fail(400);
     const key = o.lower.get(canonical.toLowerCase()) ?? canonical;
@@ -150,12 +144,18 @@ async function handleUserData(req, res, rel, o) {
             o.files.delete(key);
             o.lower.delete(key.toLowerCase());
         } else {
-            if (Number(req.headers["content-length"] ?? 0) > MAX_FILE_BYTES) return fail(413);
+            let room = MAX_FILE_BYTES;
+            if (o.dir !== userDir) {
+                let used = 0;
+                for (const size of o.files.values()) used += size;
+                room = Math.min(room, USER_QUOTA - used + (o.files.get(key) ?? 0));
+            }
+            if (Number(req.headers["content-length"] ?? 0) > room) return fail(413);
             const chunks = [];
             let n = 0;
             for await (const chunk of req) {
                 n += chunk.length;
-                if (n > MAX_FILE_BYTES) return fail(413);
+                if (n > room) return fail(413);
                 chunks.push(chunk);
             }
             await mkdir(dirname(file), { recursive: true });
@@ -180,8 +180,8 @@ const ISOLATION = {
     "Cross-Origin-Resource-Policy": "same-origin",
 };
 
-function sendFile(req, res, file, size, type) {
-    const headers = { ...ISOLATION, "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-cache" };
+function sendFile(req, res, file, size, type, extra = {}) {
+    const headers = { ...ISOLATION, "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...extra };
     const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? "");
     if (range) {
         const start = Number(range[1]);
@@ -209,12 +209,10 @@ const server = createServer(async (req, res) => {
         return res.writeHead(400, ISOLATION).end();
     }
 
-    const user = userOf(req);
-    if (user === null) {
-        const code = url.searchParams.get("invite");
-        if (path === "/" && code && sameSecret(code, invite)) return grantInvite(res);
-        return res.writeHead(403, { ...ISOLATION, "Content-Type": "text/html" }).end(REFUSED);
-    }
+    // The page is always the first request, so it is where a browser gets its cookie.
+    let user = userOf(req), extra = {};
+    if (user === null && path === "/") [user, extra["Set-Cookie"]] = newUser();
+    if (user === null) return res.writeHead(403, ISOLATION).end();
 
     if (path.startsWith("/account/") && await accounts(req, res, path, clientAddress(req))) {
         return;
@@ -239,7 +237,7 @@ const server = createServer(async (req, res) => {
     for (const dir of webDirs) {
         try {
             const st = statSync(join(dir, name));
-            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream");
+            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream", extra);
         } catch {}
     }
     res.writeHead(404, ISOLATION).end();
@@ -312,6 +310,6 @@ server.on("upgrade", (req, socket) => {
 });
 
 server.listen(port, host, () => {
-    console.log(`bridge: http://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  userdata=${userDir}${invite ? " (per invite)" : ""}`
+    console.log(`bridge: http://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  userdata=${userDir}${secret ? " (per browser)" : ""}`
         + `  relay=${[...allow].map(([a, b]) => a === b ? a : `${a}=${b}`).join(",")}`);
 });
