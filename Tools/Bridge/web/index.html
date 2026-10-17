@@ -104,8 +104,14 @@
     // correctness. To re-record it, empty it, load the page in a fresh browser profile against
     // `bridge.mjs --trace > trace.log` (with the deployment's WTF/Config.wtf: without SET movie "0" the intro
     // cinematic is read too), then: grep -o '^GET /blocks/[^ ]*' trace.log | cut -c13- | awk '!seen[$0]++'
-    fetch("login-blocks.txt").then((r) => (r.ok ? r.text() : "")).then((text) => {
-        const urls = text.split("\n").filter(Boolean).map((p) => "/blocks/" + p.split("/").map(encodeURIComponent).join("/"));
+    // world-blocks.txt follows, fetched while the player sits on the login screen: the blocks entering the world reads
+    // in any starting zone (interface textures, UI sounds, generic world art; recorded as a dwarf in Coldridge and an orc
+    // in Durotar, kept where both read them), clicks' blocks first. Without them the first open of the character pane,
+    // spellbook or world map froze the game for 0.2-0.8 s while the disk queue fetched its textures one 1 MB block at a
+    // time. To re-record it, empty both lists, record as above for two characters of different starting zones (log in,
+    // enter the world, open the common windows), and keep the blocks both traces share that login-blocks.txt lacks.
+    Promise.all(["login-blocks.txt", "world-blocks.txt"].map((f) => fetch(f).then((r) => (r.ok ? r.text() : "")).catch(() => ""))).then((texts) => {
+        const urls = texts.join("\n").split("\n").filter(Boolean).map((p) => "/blocks/" + p.split("/").map(encodeURIComponent).join("/"));
         const next = async () => {
             for (let url; (url = urls.shift()); ) await fetch(url).then((r) => r.arrayBuffer()).catch(() => {});
         };
