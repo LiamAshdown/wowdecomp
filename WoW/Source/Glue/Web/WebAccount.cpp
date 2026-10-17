@@ -615,25 +615,34 @@ end
 -- The login screen's server alert panel (left side) comes from the bridge's server-alert.txt (OsURLDownload, web).
 SERVER_ALERT_URL = "/server-alert.txt"
 
--- The realm's name in place of the WoW logo, set the way the client sets its own titles: Morpheus (the zone text
--- font) in the game's gold, outlined, over a line of Friz Quadrata.
+-- The realm's name in place of the WoW logo, over a line of Friz Quadrata. Centred over the news panel, which always
+-- sits on the login scene (a wide window pillarboxes the scene, and the logo's own corner can land in the black bar).
+-- The title is a texture (Tools/Bridge/make-logo.py) because glyphs are rasterised at 32 px at most
+-- (CGxFont::UpdateDimensions), which blurs large text; without it, the same words as text.
 AccountLoginLogo:Hide()
-local title = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
--- Glyphs are rasterised at 32 px at most (CGxFont::UpdateDimensions); SetTextHeight scales the text past that, as
--- the client's own large titles do.
-title:SetFont("Fonts\\MORPHEUS.TTF", 32, "OUTLINE")
-title:SetTextHeight(64)
-title:SetTextColor(1, 0.82, 0)
-title:SetShadowColor(0, 0, 0, 1)
-title:SetShadowOffset(3, -3)
--- Centred over the news panel, which always sits on the login scene (a wide window pillarboxes the scene, and the
--- logo's own corner can land in the black bar).
-title:SetPoint("BOTTOM", ServerAlertFrame, "TOP", 0, 26)
-title:SetText("Lasthavens")
-local subtitle = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
+local parent = AccountLoginLogo:GetParent()
+local title = parent:CreateTexture(nil, "OVERLAY")
+local subtitleAnchor = title
+if title:SetTexture("Interface\\Glues\\LasthavensLogo") then
+    title:SetWidth(360)
+    title:SetHeight(90)
+    title:SetPoint("BOTTOM", ServerAlertFrame, "TOP", 0, 10)
+else
+    title:Hide()
+    subtitleAnchor = parent:CreateFontString(nil, "OVERLAY")
+    subtitleAnchor:SetFont("Fonts\\MORPHEUS.TTF", 32, "OUTLINE")
+    subtitleAnchor:SetTextHeight(64)
+    subtitleAnchor:SetTextColor(1, 0.82, 0)
+    subtitleAnchor:SetShadowColor(0, 0, 0, 1)
+    subtitleAnchor:SetShadowOffset(3, -3)
+    subtitleAnchor:SetPoint("BOTTOM", ServerAlertFrame, "TOP", 0, 26)
+    subtitleAnchor:SetText("Lasthavens")
+end
+local subtitle = parent:CreateFontString(nil, "OVERLAY")
 subtitle:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
 subtitle:SetTextColor(0.78, 0.88, 1)
-subtitle:SetPoint("TOP", title, "BOTTOM", 0, 2)
+-- The texture has transparent space below the letters.
+subtitle:SetPoint("TOP", subtitleAnchor, "BOTTOM", 0, subtitleAnchor == title and 16 or 2)
 subtitle:SetText("Wrath of the Lich King")
 
 -- "Community Site" becomes the realm's Discord.
@@ -692,23 +701,11 @@ void WebAccountInitialize() {
 
     FrameScript_Execute(kAccountUi, "WebAccount.lua", nullptr);
 
-    // The glue frames are loaded, but the login scene (model, textures, music) still streams in for a while. The page
-    // (Tools/Bridge/web/index.html) keeps its loading screen up until no game data has been fetched for 1.5 s.
+    // The glue frames are loaded. The page (Tools/Bridge/web/index.html) reads the number of game-data blocks fetched so
+    // far to tell when the login scene has finished streaming in, and to show that a download is under way later on.
     MAIN_THREAD_ASYNC_EM_ASM({
-        if (!window.wowLoaded) return;
-        var last = -1;
-        var quiet = 0;
-        var timer = setInterval(function() {
-            var count = HEAP32[$0 >> 2];
-            if (count !== last) {
-                last = count;
-                quiet = 0;
-                if (window.wowLoading) window.wowLoading();
-            } else if ((quiet += 250) >= 1500) {
-                clearInterval(timer);
-                window.wowLoaded();
-            }
-        }, 250);
+        window.wowFetchCount = function() { return HEAP32[$0 >> 2]; };
+        if (window.wowFramesLoaded) window.wowFramesLoaded();
     }, WebVfs::FetchCounter());
 }
 

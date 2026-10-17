@@ -26,6 +26,14 @@
     #status { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; color: #ffd200;
               font: 15px Georgia, serif; text-shadow: 1px 1px 0 #000; }
 
+    /* Shown while game data downloads after the login screen; in the client's gold with its text shadow. */
+    #activity { position: fixed; left: 0; right: 0; bottom: 20%; z-index: 1; text-align: center; pointer-events: none;
+                color: #ffd200; font: 16px Georgia, serif; text-shadow: 1px 1px 0 #000, 0 0 6px #000;
+                opacity: 0; transition: opacity .3s; }
+    #activity.on { opacity: 1; }
+    #activity span::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
     /* Without extracted art (a local bridge): the same bar, drawn plainly. */
     #loading.plain #border { border: 1px solid #555; box-sizing: border-box; background: none; }
     #loading.plain #fill { background: #2d6f8f; }
@@ -36,6 +44,7 @@
 <div id="loading">
     <div id="screen"><div id="fill"></div><div id="border"></div><div id="status"></div></div>
 </div>
+<div id="activity">Downloading game data<span></span></div>
 <pre id="log" class="hidden"></pre>
 <script>
     const log = document.getElementById("log");
@@ -80,15 +89,39 @@
     let creep;
     const fail = (text) => { clearInterval(creep); status.textContent = text; };
 
-    // Called by the client while the login scene streams in (each new block of game data), then once it has gone quiet
-    // (WebAccount.cpp). The cap keeps a slow connection from showing the loading screen forever.
-    window.wowLoading = () => setProgress(progress + (0.99 - progress) * 0.03);
-    window.wowLoaded = () => {
+    // The client reports when its glue frames are loaded and hands over window.wowFetchCount(), the number of game-data
+    // blocks it has fetched (WebAccount.cpp). The login scene still streams in after that, so the loading screen stays
+    // up until the count has not moved for 1.5 s; the cap keeps a slow connection from showing it forever. After that,
+    // a download that runs for more than a moment (entering the world, a new zone) gets the activity line, because the
+    // game itself stops drawing while it waits for data.
+    const activity = document.getElementById("activity");
+    let loaded = false;
+    const finishLoading = () => {
+        if (loaded) return;
+        loaded = true;
         clearInterval(creep);
         setProgress(1);
         setTimeout(() => loading.classList.add("done"), 200);
     };
-    setTimeout(() => window.wowLoaded(), 180_000);
+    setTimeout(finishLoading, 180_000);
+    window.wowFramesLoaded = () => {
+        let last = window.wowFetchCount(), changedAt = performance.now(), burstFrom = null;
+        setInterval(() => {
+            const count = window.wowFetchCount(), now = performance.now();
+            if (count !== last) {
+                if (burstFrom === null) burstFrom = { at: now, count: last };
+                last = count;
+                changedAt = now;
+                if (!loaded) setProgress(progress + (0.99 - progress) * 0.03);
+            } else if (now - changedAt >= 1500) {
+                burstFrom = null;
+                finishLoading();
+            }
+            const showing = loaded && burstFrom !== null && now - burstFrom.at >= 700;
+            activity.classList.toggle("on", showing);
+            if (showing) activity.firstChild.textContent = `Downloading game data (${count - burstFrom.count} MB)`;
+        }, 250);
+    };
 
     if (!crossOriginIsolated) {
         fail("This page has to be served by the Lasthavens bridge.");
