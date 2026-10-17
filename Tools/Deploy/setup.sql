@@ -8,3 +8,5 @@ GRANT SELECT, INSERT ON acore_auth.realmcharacters TO 'wowbridge'@'%';
 GRANT SELECT ON acore_auth.realmlist TO 'wowbridge'@'%';
 GRANT SELECT ON acore_auth.account_banned TO 'wowbridge'@'%';
 UPDATE acore_auth.realmlist SET name = 'Lasthavens', address = '127.0.0.1', port = 8085 WHERE id = 1;
+-- Read when the worldserver starts.
+UPDATE acore_auth.motd SET text = 'Welcome to Lasthavens.' WHERE realmid = -1;
