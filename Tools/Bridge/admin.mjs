@@ -145,13 +145,13 @@ section { scroll-margin-top: 70px; margin-top: 28px; }
 h2 { margin: 0 0 12px; font: 600 13px system-ui, sans-serif; color: var(--gold); text-transform: uppercase; letter-spacing: .08em; }
 h3 { margin: 0 0 10px; font: 600 13px system-ui, sans-serif; color: var(--ink2); }
 .muted { color: var(--muted); font-size: 12px; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
 .kpi { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow: hidden; }
 .kpi span { display: block; color: var(--ink2); font-size: 12px; } .kpi b { display: block; font-size: 24px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .kpi small { color: var(--muted); font-size: 11px; }
 .spark { display: block; width: 100%; height: 24px; margin-top: 6px; } .spark polyline { fill: none; stroke: var(--gold); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.grid4 { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.grid4 { grid-template-columns: repeat(4, 1fr); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
 .mini { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .mini figcaption { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
@@ -201,7 +201,9 @@ button { background: var(--gold2); border-color: var(--gold2); color: #fff; curs
 .who .row:hover { background: var(--panel2); } .who .row small { color: var(--muted); display: block; }
 .login { max-width: 360px; margin: 18vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
 .login h1 { font: 600 22px Georgia, serif; color: var(--gold); margin: 0 0 16px; } .login form { display: grid; gap: 10px; }
+@media (max-width: 1400px) { .kpis { grid-template-columns: repeat(3, 1fr); } .grid4 { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 900px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); } .grid4 { grid-template-columns: 1fr; }
   .shell { grid-template-columns: 1fr; } .map-wrap { grid-template-columns: 1fr; }
   nav { position: sticky; z-index: 6; height: auto; display: flex; gap: 4px; overflow-x: auto; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
   nav .brand { display: none; } nav a { white-space: nowrap; } main { padding: 0 16px 48px; } header.top { top: 49px; }
@@ -232,10 +234,14 @@ for (const f of document.querySelectorAll("input.filter")) {
   const rows = f.nextElementSibling.querySelectorAll("tbody tr");
   f.addEventListener("input", () => { const q = f.value.toLowerCase(); for (const r of rows) r.hidden = !r.textContent.toLowerCase().includes(q); });
 }
-const links = [...document.querySelectorAll("nav a")];
-const io = new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) for (const a of links) a.classList.toggle("on", a.hash === "#" + e.target.id); },
-  { rootMargin: "-40% 0px -55% 0px" });
-document.querySelectorAll("main section").forEach((s) => io.observe(s));
+const links = [...document.querySelectorAll("nav a")], sections = [...document.querySelectorAll("main section")];
+function showTab() {
+  const id = sections.some((s) => "#" + s.id === location.hash) ? location.hash.slice(1) : "overview";
+  for (const s of sections) s.hidden = s.id !== id;
+  for (const a of links) if (a.classList.toggle("on", a.hash === "#" + id)) document.getElementById("title").textContent = a.textContent;
+  scrollTo(0, 0);
+}
+addEventListener("hashchange", showTab); showTab();
 
 const WORLD = JSON.parse(document.getElementById("worldData").textContent);
 const COLORS = ${JSON.stringify(CLASS_COLORS)}, CLASSES = ${JSON.stringify(CLASSES)}, RACES = ${JSON.stringify(RACES)}, HORDE = [2, 5, 6, 8, 10];
@@ -395,7 +401,7 @@ export function createAdmin({ databaseUrl, password, secret, webDirs = [], pool 
             one("SELECT COUNT(*) AS count, COALESCE(SUM(buyoutprice), 0) AS buyout FROM acore_characters.auctionhouse"),
             one("SELECT COUNT(*) AS count FROM acore_characters.character_queststatus_rewarded"),
             all(`SELECT IF(level >= 80, 8, level DIV 10) AS bucket, COUNT(*) AS count FROM ${C} GROUP BY bucket`),
-            all(`SELECT race, class, gender, COUNT(*) AS count FROM ${C} GROUP BY race, class, gender`),
+            all(`SELECT race, class, COUNT(*) AS count FROM ${C} GROUP BY race, class`),
             all(`SELECT zone, COUNT(*) AS count, SUM(online) AS online FROM ${C} GROUP BY zone ORDER BY count DESC LIMIT 12`),
             all(`SELECT name, level, race, class, money FROM ${C} ORDER BY money DESC LIMIT 10`),
             all(`SELECT name, level, race, class, totalKills FROM ${C} WHERE totalKills > 0 ORDER BY totalKills DESC LIMIT 10`),
@@ -418,19 +424,14 @@ export function createAdmin({ databaseUrl, password, secret, webDirs = [], pool 
         const days = [...Array(14)].map((_, i) => new Date(Date.now() - (13 - i) * 86400_000).toISOString().slice(0, 10));
         const series = (event) => days.map((day) => Number(daily.find((r) => r.day === day && r.event === event)?.count ?? 0));
         const signupSeries = days.map((day) => Number(signupsByDay.find((s) => s.day === day)?.count ?? 0));
-        const loadSeries = days.map((day) => {
-            const r = daily.find((r) => r.day === day && r.event === "loaded");
-            return r && Number(r.count) ? Number(r.ms) / Number(r.count) / 1000 : 0;
-        });
 
-        // Demographics from one race x class x gender count.
+        // Demographics from one race x class count.
         const sum = (pick) => {
             const out = new Map();
             for (const d of demo) out.set(pick(d), (out.get(pick(d)) ?? 0) + Number(d.count));
             return [...out].sort((a, b) => b[1] - a[1]);
         };
         const byClass = sum((d) => d.class), byRace = sum((d) => d.race), byFaction = new Map(sum((d) => faction(d.race)));
-        const byGender = new Map(sum((d) => (Number(d.gender) ? "Female" : "Male")));
         const alliance = byFaction.get("Alliance") ?? 0, horde = byFaction.get("Horde") ?? 0;
         const LEVEL_BUCKETS = ["1-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80"];
 
@@ -439,99 +440,72 @@ export function createAdmin({ databaseUrl, password, secret, webDirs = [], pool 
         const leader = (rows, value, format = num) => table([["#", 1], ["Character"], ["Level", 1], [value[0], 1]],
             rows.map((c, i) => [[i + 1, 1], [charName(c)], [c.level, 1], [format(c[value[1]]), 1, "", c[value[1]]]]));
 
-        const nav = [["overview", "Overview"], ["live", "Live map"], ["traffic", "Traffic"], ["players", "Players"], ["world", "World"],
-            ["economy", "Economy"], ["leaders", "Leaderboards"], ["guilds", "Guilds"], ["accounts", "Accounts"], ["characters", "Characters"], ["website", "Website"]];
+        // One tab shown at a time (SCRIPT): a handful of numbers up top, the detail one click away.
+        const nav = [["overview", "Overview"], ["traffic", "Traffic"], ["players", "Players"], ["leaders", "Leaderboards"],
+            ["guilds", "Guilds"], ["accounts", "Accounts"], ["characters", "Characters"]];
 
         return page("Lasthavens admin", `<div class="shell">
 <nav><div class="brand">Lasthavens<small>Realm admin</small></div>${nav.map(([id, label]) => `<a href="#${id}">${label}</a>`).join("")}</nav>
 <main>
-<header class="top"><h1>Dashboard</h1><span id="live" class="live">Live</span><span class="grow"></span>
-<span class="pill">Uptime ${uptime.current ? duration(uptime.current) : "-"}</span><span class="pill">${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC</span>
+<header class="top"><h1 id="title">Overview</h1><span id="live" class="live">Live</span><span class="grow"></span>
+<span class="pill">Up ${uptime.current ? duration(uptime.current) : "-"} · ${num(uptime.restarts)} restarts in 14d</span>
 <a class="pill" href="/admin?logout">Sign out</a></header>
 ${failed.length ? `<p class="muted">Some panels are empty: ${escape([...new Set(failed)].join("; "))}</p>` : ""}
 
-<section id="overview"><h2>Overview</h2><div class="kpis">
-${kpi("Online now", num(chars.online), `peak ${num(uptime.peakNow)} this uptime · ${num(uptime.peak)} all-time`, null, "onlineNow")}
-${kpi("Accounts", num(accounts.total), `+${num(accounts.today)} today · +${num(accounts.week)} this week`, signupSeries)}
-${kpi("Characters", num(chars.total), `${num(chars.maxed)} at level 80 · avg level ${Number(chars.avgLevel ?? 0).toFixed(1)}`)}
-${kpi("Active players", num(chars.day7), `${num(chars.day1)} in 24h · ${num(chars.day30)} in 30d`)}
-${kpi("World entries, 7 days", num(week("world_connection")), `${num(week("login_connection"))} logins`, series("world_connection"))}
-${kpi("Page opens, 7 days", num(week("visit")), `${num(week("new_browser"))} new visitors`, series("visit"))}
-${kpi("Load success, 7 days", pct(week("loaded"), week("loaded") + week("load_failed")), `${num(week("load_failed"))} failed · avg ${avgLoad}`, series("loaded"))}
-${kpi("Time played", hours(chars.played), `${num(chars.accounts)} accounts with characters`)}
-${kpi("Gold in circulation", gold(chars.money), `${num(auctions.count)} auctions · ${gold(auctions.buyout)} buyout`)}
-${kpi("Quests completed", num(quests.count), `${num(chars.kills)} honorable kills`)}
-${kpi("Retention", pct(accounts.active7, accounts.total), `of accounts logged in this week · ${pct(accounts.active30, accounts.total)} in 30d`)}
-${kpi("Server", uptime.current ? duration(uptime.current) : "-", `${num(uptime.restarts)} restarts in 14 days · ${num(bans.active)} active bans`)}
-</div></section>
-
-<section id="live"><h2>Live map</h2><div class="map-wrap"><div class="card">
+<section id="overview"><div class="kpis">
+${kpi("Online now", num(chars.online), `peak ${num(uptime.peakNow)} this uptime`, null, "onlineNow")}
+${kpi("Active players", num(chars.day7), `played this week · ${num(chars.day1)} today`)}
+${kpi("Accounts", num(accounts.total), `+${num(accounts.week)} this week`, signupSeries)}
+${kpi("Characters", num(chars.total), `${num(chars.maxed)} at level 80`)}
+${kpi("World entries", num(week("world_connection")), "last 7 days", series("world_connection"))}
+${kpi("Load success", pct(week("loaded"), week("loaded") + week("load_failed")), `avg ${avgLoad} · last 7 days`)}
+</div>
+<div class="map-wrap" style="margin-top:12px"><div class="card">
 ${w.continents.length ? `<div class="tabs" id="tabs"></div><div class="map" id="map"><div class="empty" id="mapEmpty">Nobody on this continent</div></div>
-<div class="legend"><span><i style="background:var(--alliance)"></i>Alliance</span><span><i style="background:var(--horde)"></i>Horde</span><span>Updates every 10 s · hover a dot for details</span></div>`
+<div class="legend"><span><i style="background:var(--alliance)"></i>Alliance</span><span><i style="background:var(--horde)"></i>Horde</span></div>`
         : `<p class="muted">No world maps yet: run <code>node Tools/Bridge/extract-art.mjs --out &lt;web dir&gt;</code> for the map. Players are listed alongside.</p>`}
 </div><div class="card"><h3 id="whoCount">Online</h3><div class="who" id="who"></div></div></div></section>
 
-<section id="traffic"><h2>Traffic, last 14 days</h2><div class="grid grid4">
-${columns("Page opens", days, series("visit"))}${columns("New visitors", days, series("new_browser"))}
-${columns("Reached login screen", days, series("loaded"))}${columns("Accounts created", days, signupSeries)}
-${columns("Logins", days, series("login_connection"))}${columns("World entries", days, series("world_connection"))}
-${columns("Average load time", days, loadSeries, (v) => (v ? `${Number(v).toFixed(1)} s` : "-"), true)}${columns("Failed loads", days, series("load_failed"))}
+<section id="traffic"><div class="grid grid4">
+${columns("Page opens", days, series("visit"))}${columns("Reached login screen", days, series("loaded"))}
+${columns("Accounts created", days, signupSeries)}${columns("World entries", days, series("world_connection"))}
 </div>
 <div class="grid" style="margin-top:12px"><div class="card funnel"><h3>Funnel, 7 days</h3>
 ${hbars([["Opened the page", week("visit")], ["Reached login", week("loaded")], ["Created an account", week("account_created")], ["Entered the world", week("world_connection")]], num, week("visit"))}
-<p class="muted">Percentages are of page opens; logins and world entries count every session, not people.</p></div></div></section>
+<p class="muted">Percentages are of page opens; world entries count sessions, not people.</p></div>
+<div class="card"><h3>Browsers, 7 days</h3>${hbars(events.filter((e) => e.event === "visit").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div>
+<div class="card"><h3>Failed loads, 7 days</h3>${hbars(events.filter((e) => e.event === "load_failed").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div>
+</div></section>
 
-<section id="players"><h2>Players</h2><div class="grid">
+<section id="players"><div class="grid">
 <div class="card"><h3>Faction balance</h3><div class="split">
 <div style="flex:${alliance || 1};background:var(--alliance)">Alliance ${pct(alliance, alliance + horde)}</div>
 <div style="flex:${horde || (alliance ? 0 : 1)};background:var(--horde)">Horde ${pct(horde, alliance + horde)}</div></div>
-<p class="muted">${num(alliance)} Alliance · ${num(horde)} Horde characters</p>
-<h3 style="margin-top:14px">Gender</h3>${hbars([["Male", byGender.get("Male") ?? 0], ["Female", byGender.get("Female") ?? 0]])}
-<h3 style="margin-top:14px">Activity</h3>${hbars([["Played in 24h", chars.day1], ["Played in 7 days", chars.day7], ["Played in 30 days", chars.day30], ["All characters", chars.total]])}</div>
+<h3 style="margin-top:14px">Level distribution</h3>${hbars(LEVEL_BUCKETS.map((label, i) => [label, Number(levels.find((l) => Number(l.bucket) === i)?.count ?? 0)]))}</div>
 <div class="card"><h3>Classes</h3>${hbars(byClass.map(([c, n]) => [CLASSES[c] ?? `Class ${c}`, n, CLASS_COLORS[c]]))}</div>
 <div class="card"><h3>Races</h3>${hbars(byRace.map(([r, n]) => [RACES[r] ?? `Race ${r}`, n, HORDE.has(Number(r)) ? "var(--horde)" : "var(--alliance)"]))}</div>
-<div class="card"><h3>Level distribution</h3>${hbars(LEVEL_BUCKETS.map((label, i) => [label, Number(levels.find((l) => Number(l.bucket) === i)?.count ?? 0)]))}</div>
+<div class="card"><h3>Where characters are</h3>${hbars(zones.map((z) => [zoneName(z.zone), z.count]))}</div>
 </div></section>
 
-<section id="world"><h2>World</h2><div class="grid"><div class="card"><h3>Where characters are (last known zone)</h3>
-${hbars(zones.map((z) => [zoneName(z.zone), z.count]))}</div>
-<div class="card"><h3>Zones by players online</h3>${hbars(zones.filter((z) => Number(z.online)).map((z) => [zoneName(z.zone), z.online]))}</div></div></section>
-
-<section id="economy"><h2>Economy</h2><div class="grid">
-<div class="card"><h3>Richest characters</h3>${leader(richest, ["Gold", "money"], gold)}</div>
-<div class="card"><h3>Totals</h3>${hbars([["Character gold", Math.floor(Number(chars.money ?? 0) / 10000)], ["Auction buyouts", Math.floor(Number(auctions.buyout) / 10000)],
-            ["Guild banks", Math.floor(guilds.reduce((n, g) => n + Number(g.bank ?? 0), 0) / 10000)]], (v) => `${num(v)}g`)}
-<p class="muted">Average ${gold(Number(chars.money ?? 0) / Math.max(1, Number(chars.total)))} per character.</p></div></div></section>
-
-<section id="leaders"><h2>Leaderboards</h2><div class="grid">
+<section id="leaders"><p class="muted" style="margin-top:0">${gold(chars.money)} held by characters · ${num(auctions.count)} auctions worth ${gold(auctions.buyout)}
+· ${num(quests.count)} quests completed · ${num(chars.kills)} honorable kills</p><div class="grid">
+<div class="card"><h3>Richest</h3>${leader(richest, ["Gold", "money"], gold)}</div>
 <div class="card"><h3>Most achievements</h3>${leader(achievers, ["Achievements", "count"])}</div>
 <div class="card"><h3>Most honorable kills</h3>${leader(killers, ["Kills", "totalKills"])}</div></div></section>
 
-<section id="guilds"><h2>Guilds</h2>${table([["Guild"], ["Leader"], ["Faction"], ["Members", 1], ["Online", 1], ["Top level", 1], ["Bank", 1]],
+<section id="guilds">${table([["Guild"], ["Leader"], ["Faction"], ["Members", 1], ["Online", 1], ["Top level", 1], ["Bank", 1]],
             guilds.map((g) => [[escape(g.name)], [escape(g.leader ?? "-")], [g.race ? factionTag(g.race) : "-"], [g.members, 1], [g.online, 1, Number(g.online) ? "online" : ""],
                 [g.topLevel, 1], [gold(g.bank), 1, "", g.bank]]))}</section>
 
-<section id="accounts"><h2>Accounts</h2>${table([["Account"], ["Created"], ["Last login"], ["Expansion"], ["Characters", 1], ["Top level", 1], ["Played", 1]],
+<section id="accounts"><p class="muted" style="margin-top:0">${pct(accounts.active7, accounts.total)} logged in this week · ${num(bans.active)} active bans</p>
+${table([["Account"], ["Created"], ["Last login"], ["Expansion"], ["Characters", 1], ["Top level", 1], ["Played", 1]],
             signups.map((a) => [[escape(a.username), 0, a.online ? "online" : ""], [date(a.joined, true)], [date(a.lastLogin, true)],
                 [["Classic", "TBC", "WotLK"][a.expansion] ?? a.expansion], [a.characters, 1], [a.topLevel, 1], [hours(a.played), 1, "", a.played]]), { filter: "accounts" })}</section>
 
-<section id="characters"><h2>Characters</h2>${table([["Character"], ["Level", 1], ["Race"], ["Class"], ["Faction"], ["Zone"], ["Gold", 1], ["Kills", 1], ["Played", 1], ["Last seen"], ["Account"]],
+<section id="characters">${table([["Character"], ["Level", 1], ["Race"], ["Class"], ["Faction"], ["Zone"], ["Gold", 1], ["Kills", 1], ["Played", 1], ["Last seen"], ["Account"]],
             top.map((c) => [[charName(c), 0, ""], [c.level, 1], [RACES[c.race] ?? c.race], [CLASSES[c.class] ?? c.class], [factionTag(c.race)], [escape(zoneName(c.zone))],
                 [gold(c.money), 1, "", c.money], [num(c.totalKills), 1], [hours(c.totaltime), 1, "", c.totaltime],
                 [c.online ? "online now" : date(c.logout_time, true), 0, c.online ? "online" : "", c.online ? "9999999999" : c.logout_time], [escape(c.username)]]), { filter: "characters" })}</section>
-
-<section id="website"><h2>Website, 7 days</h2><div class="grid">
-<div class="card"><h3>Browsers</h3>${hbars(events.filter((e) => e.event === "visit").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div>
-<div class="card"><h3>Failed load reasons</h3>${hbars(events.filter((e) => e.event === "load_failed").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div></div>
-<h3 style="margin-top:16px">By day</h3>
-${table([["Day"], ["Page opens", 1], ["New visitors", 1], ["Reached login", 1], ["Avg load", 1], ["Failed loads", 1], ["New accounts", 1], ["Logins", 1], ["World entries", 1]],
-            [...days].reverse().map((day, r) => {
-                const i = 13 - r;
-                return [[day], [series("visit")[i], 1], [series("new_browser")[i], 1], [series("loaded")[i], 1],
-                    [loadSeries[i] ? `${loadSeries[i].toFixed(1)} s` : "-", 1], [series("load_failed")[i], 1], [signupSeries[i], 1],
-                    [series("login_connection")[i], 1], [series("world_connection")[i], 1]];
-            }))}
-<p class="muted">Website counts are anonymous per-day totals; realm numbers are live from the database. Times are UTC.</p></section>
 </main></div><div id="tip"></div>
 <script type="application/json" id="worldData">${worldJson}</script><script>${SCRIPT}</script>`);
     }

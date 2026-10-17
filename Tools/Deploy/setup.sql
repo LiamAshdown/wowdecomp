@@ -9,6 +9,12 @@ GRANT SELECT ON acore_auth.realmlist TO 'wowbridge'@'%';
 GRANT SELECT ON acore_auth.account_banned TO 'wowbridge'@'%';
 -- The admin page (Tools/Bridge/admin.mjs): characters to read, and the anonymous per-day usage counts.
 GRANT SELECT ON acore_characters.characters TO 'wowbridge'@'%';
+GRANT SELECT ON acore_auth.uptime TO 'wowbridge'@'%';
+GRANT SELECT ON acore_characters.auctionhouse TO 'wowbridge'@'%';
+GRANT SELECT ON acore_characters.character_queststatus_rewarded TO 'wowbridge'@'%';
+GRANT SELECT ON acore_characters.character_achievement TO 'wowbridge'@'%';
+GRANT SELECT ON acore_characters.guild TO 'wowbridge'@'%';
+GRANT SELECT ON acore_characters.guild_member TO 'wowbridge'@'%';
 CREATE DATABASE IF NOT EXISTS lasthavens;
 CREATE TABLE IF NOT EXISTS lasthavens.web_events (
     day DATE NOT NULL,
