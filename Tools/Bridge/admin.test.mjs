@@ -1,7 +1,7 @@
 // node --test Tools/Bridge
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pageEvent } from "./admin.mjs";
+import { mapPoint, pageEvent } from "./admin.mjs";
 
 test("page events: only the known events and details, ms only for loaded", () => {
     assert.deepEqual(pageEvent({ event: "visit", detail: "firefox" }), { event: "visit", detail: "firefox", ms: 0 });
@@ -12,4 +12,11 @@ test("page events: only the known events and details, ms only for loaded", () =>
     assert.equal(pageEvent({ event: "account_created" }), null);   // server-side only
     assert.equal(pageEvent({ event: "visit", detail: "x".repeat(5000) }), null);
     assert.equal(pageEvent(null), null);
+});
+
+test("map points: world position to the continent map, null off it", () => {
+    const northrend = { left: 9217.15, right: -8534.25, top: 10593.38, bottom: -1240.89 };
+    const [fx, fy] = mapPoint(northrend, 5804, 624);   // Dalaran
+    assert.ok(Math.abs(fx - 0.484) < 0.01 && Math.abs(fy - 0.405) < 0.01, `${fx} ${fy}`);
+    assert.equal(mapPoint(northrend, 20000, 0), null);
 });

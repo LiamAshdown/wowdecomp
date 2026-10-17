@@ -57,7 +57,7 @@ if (existsSync(envFile)) {
     }
 }
 // /admin and the anonymous per-day usage counts (admin.mjs).
-const admin = createAdmin({ databaseUrl: process.env.WOW_BRIDGE_DB, password: process.env.WOW_BRIDGE_ADMIN_PASSWORD, secret: process.env.WOW_BRIDGE_SECRET });
+const admin = createAdmin({ databaseUrl: process.env.WOW_BRIDGE_DB, password: process.env.WOW_BRIDGE_ADMIN_PASSWORD, secret: process.env.WOW_BRIDGE_SECRET, webDirs });
 const accounts = createAccountService(process.env.WOW_BRIDGE_DB, admin.record);
 
 // ---- Per-browser cookie (hosted bridge only) -----------------------------------------------------------------------
