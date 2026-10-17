@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 160">
+  <!-- Lasthavens: inscription-style capitals drawn by hand on a 100-unit cap grid (thick stems and diagonals, thin
+       arms and crossbars, fine slab serifs), clipped flat at cap height and baseline, beside the keep from
+       favicon.svg. No font, so it renders the same everywhere. -->
+  <style>
+    .w { fill: none; stroke: #e2cf9c; stroke-linejoin: miter; stroke-miterlimit: 10; }
+    .k { stroke-width: 14; } .t { stroke-width: 7; } .s { stroke-width: 4; }
+  </style>
+  <defs>
+    <clipPath id="caps"><rect x="-20" y="0" width="900" height="100"/></clipPath>
+  </defs>
+
+  <g transform="translate(0 10) scale(4.375)" fill="#b48c46">
+    <path d="M8 27V5h3.2v3h3.2V5h3.2v3h3.2V5H24v22z"/>
+    <path d="M13 27v-8a3 3 0 0 1 6 0v8z" fill="#f1d38a"/>
+  </g>
+
+  <g class="w" transform="translate(190 30)" clip-path="url(#caps)">
+    <g><!-- L -->
+      <path class="k" d="M9 0V100"/><path class="t" d="M9 96.5H58"/>
+      <path class="s" d="M-2 2H20M-2 98H12M56 80V100"/>
+    </g>
+    <g transform="translate(80 0)"><!-- A -->
+      <path class="t" d="M3 106L29 0"/><path class="k" d="M27 -6L58 106"/><path class="t" d="M16 66H50"/>
+      <path class="s" d="M-6 98H12M46 98H70"/>
+    </g>
+    <g transform="translate(166 0)"><!-- S -->
+      <path class="k" d="M51 16C45 8 38 6 29 6C16 6 9 13 9 25C9 39 19 44 30 48C42 52 50 58 50 72C50 86 41 94 28 94C17 94 9 90 4 82"/>
+    </g>
+    <g transform="translate(244 0)"><!-- T -->
+      <path class="t" d="M0 3.5H62"/><path class="k" d="M31 0V100"/>
+      <path class="s" d="M2 0V18M60 0V18M20 98H42"/>
+    </g>
+    <g transform="translate(326 0)"><!-- H -->
+      <path class="k" d="M9 0V100M55 0V100"/><path class="t" d="M9 50H55"/>
+      <path class="s" d="M-2 2H20M44 2H66M-2 98H20M44 98H66"/>
+    </g>
+    <g transform="translate(410 0)"><!-- A -->
+      <path class="t" d="M3 106L29 0"/><path class="k" d="M27 -6L58 106"/><path class="t" d="M16 66H50"/>
+      <path class="s" d="M-6 98H12M46 98H70"/>
+    </g>
+    <g transform="translate(494 0)"><!-- V -->
+      <path class="k" d="M2 -6L33 106"/><path class="t" d="M31 106L57 0"/>
+      <path class="s" d="M-8 2H16M46 2H66"/>
+    </g>
+    <g transform="translate(574 0)"><!-- E -->
+      <path class="k" d="M9 0V100"/><path class="t" d="M9 3.5H52M9 50H46M9 96.5H54"/>
+      <path class="s" d="M50 0V18M44 42V58M52 82V100M-2 2H12M-2 98H12"/>
+    </g>
+    <g transform="translate(646 0)"><!-- N -->
+      <path class="t" d="M5 0V100M53 0V100"/><path class="k" d="M3 -8L55 108"/>
+      <path class="s" d="M-6 98H16M-6 2H8M42 2H64"/>
+    </g>
+    <g transform="translate(728 0)"><!-- S -->
+      <path class="k" d="M51 16C45 8 38 6 29 6C16 6 9 13 9 25C9 39 19 44 30 48C42 52 50 58 50 72C50 86 41 94 28 94C17 94 9 90 4 82"/>
+    </g>
+  </g>
+</svg>
