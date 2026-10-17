@@ -9,12 +9,26 @@
     html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 12px/1.4 monospace; overflow: hidden; }
     #canvas { display: block; width: 100vw; height: 100vh; outline: none; }
     #log { position: fixed; left: 0; right: 0; bottom: 0; max-height: 35vh; overflow: auto; margin: 0; padding: 6px 8px;
-           background: rgba(0, 0, 0, .75); white-space: pre-wrap; pointer-events: none; }
+           background: rgba(0, 0, 0, .75); white-space: pre-wrap; pointer-events: none; z-index: 2; }
     #log.hidden { display: none; }
+
+    /* Plain on purpose: a status line and a hairline bar along the bottom edge, like the game's own loading bar. */
+    #loading { position: fixed; inset: 0; z-index: 1; background: #000; color: #9a968c; font: 13px/1.4 monospace;
+               transition: opacity .4s; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #status { position: absolute; left: 16px; bottom: 14px; }
+    #status.error { color: #d9826f; }
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+    #fill { width: 0; height: 100%; background: #8a7344; }
+    #bar.busy #fill { width: 100%; opacity: .35; }
 </style>
 </head>
 <body>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="loading">
+    <div id="status">lasthavens: connecting</div>
+    <div id="bar"><div id="fill"></div></div>
+</div>
 <pre id="log" class="hidden"></pre>
 <script>
     const log = document.getElementById("log");
@@ -26,16 +40,61 @@
     // The log starts hidden; F10 toggles it.
     addEventListener("keydown", (e) => { if (e.key === "F10") { log.classList.toggle("hidden"); e.preventDefault(); } });
 
+    const loading = document.getElementById("loading");
+    const bar = document.getElementById("bar");
+    const fill = document.getElementById("fill");
+    const status = document.getElementById("status");
+    const fail = (text) => {
+        bar.classList.remove("busy");
+        status.classList.add("error");
+        status.textContent = text;
+    };
+
+    // Called by the client once the login screen is loaded (WebAccount.cpp).
+    window.wowLoaded = () => loading.classList.add("done");
+
     if (!crossOriginIsolated) {
-        log.classList.remove("hidden");
-        append("Page is not cross-origin isolated; serve it with Tools/Bridge/bridge.mjs.");
+        fail("lasthavens: this page has to be served by the bridge (Tools/Bridge/bridge.mjs)");
     }
+
+    const MB = (bytes) => (bytes / 1048576).toFixed(0);
 
     var Module = {
         canvas: document.getElementById("canvas"),
         print: append,
         printErr: append,
+
+        // Downloads Wow.wasm with progress (the browser keeps it, so later visits only check it is current).
+        instantiateWasm(info, receive) {
+            (async () => {
+                const response = await fetch("Wow.wasm");
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                // A compressed response has no usable length; then only the downloaded size is shown.
+                const total = response.headers.get("content-encoding") ? 0 : Number(response.headers.get("content-length") ?? 0);
+                const reader = response.body.getReader();
+                const chunks = [];
+                let received = 0;
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    if (total) fill.style.width = `${(received / total) * 100}%`;
+                    status.textContent = total ? `lasthavens: downloading client ${MB(received)}/${MB(total)} MB` : `lasthavens: downloading client ${MB(received)} MB`;
+                }
+                const bytes = new Uint8Array(received);
+                let at = 0;
+                for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
+
+                bar.classList.add("busy");
+                status.textContent = "lasthavens: starting";
+                const { instance, module } = await WebAssembly.instantiate(bytes, info);
+                receive(instance, module);
+            })().catch((e) => fail(`lasthavens: could not load the client (${e.message}), reload to retry`));
+            return {};
+        },
     };
+    window.addEventListener("error", (e) => { if (!loading.classList.contains("done")) fail(`lasthavens: ${e.message}`); });
 </script>
 <script src="Wow.js"></script>
 </body>

@@ -665,6 +665,11 @@ void WebAccountInitialize() {
     FrameScript_RegisterFunction("WebLog", Script_WebLog);
 
     FrameScript_Execute(kAccountUi, "WebAccount.lua", nullptr);
+
+    // The glue screens are loaded: the page can drop its loading screen (Tools/Bridge/web/index.html).
+    MAIN_THREAD_ASYNC_EM_ASM({
+        if (window.wowLoaded) window.wowLoaded();
+    });
 }
 
 #endif

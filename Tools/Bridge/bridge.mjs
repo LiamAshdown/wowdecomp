@@ -9,7 +9,7 @@
 //   /account/*           in-client account creation and password changes (account.mjs; DB login in bridge.env)
 //
 //   node Tools/Bridge/bridge.mjs [--host 127.0.0.1] [--port 8080] [--game bin/Win] [--userdata Tools/Bridge/userdata]
-//                                [--web bin/Web] [--allow 127.0.0.1:3724,127.0.0.1:8085]
+//                                [--web bin/Web] [--allow 127.0.0.1:3724,127.0.0.1:8085] [--trace]
 //
 // An --allow entry may name another target, "127.0.0.1:3724=ac-authserver:3724", so the addresses the client knows
 // (realmlist.wtf and the realmlist table) stay 127.0.0.1 while the servers live elsewhere (Tools/Deploy).
@@ -29,7 +29,12 @@ import { createAccountService } from "./account.mjs";
 import { ALLOWED_DIRS, MAX_FILE_BYTES, userPath } from "./userdata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const args = Object.fromEntries(process.argv.slice(2).join(" ").split("--").filter(Boolean).map((a) => a.trim().split(/\s+/)));
+// "--name value" pairs; a flag followed by another flag (--trace) has no value. Values may contain "--" (Windows temp paths).
+const args = {};
+for (let i = 2; i < process.argv.length; i++) {
+    const m = /^--(.+)$/.exec(process.argv[i]);
+    if (m) args[m[1]] = process.argv[i + 1]?.startsWith("--") ? "" : process.argv[++i];
+}
 const host = args.host ?? "127.0.0.1";
 const port = Number(args.port ?? 8080);
 const gameDir = resolve(root, args.game ?? "bin/Win");
@@ -174,6 +179,7 @@ async function handleUserData(req, res, rel, o) {
     }
 }
 
+const BLOCK_BYTES = 1 << 20;   // WebVfs kBlockSize
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
@@ -210,6 +216,8 @@ const server = createServer(async (req, res) => {
         return res.writeHead(400, ISOLATION).end();
     }
 
+    if ("trace" in args) console.log(req.method, path, req.headers.range ?? "", req.headers["cache-control"] ?? "", req.headers.pragma ?? "");
+
     // The page is always the first request, so it is where a browser gets its cookie.
     let user = userOf(req), extra = {};
     if (user === null && path === "/") [user, extra["Set-Cookie"]] = newUser();
@@ -226,6 +234,22 @@ const server = createServer(async (req, res) => {
 
     if (path.startsWith("/userdata/")) return handleUserData(req, res, path.slice("/userdata/".length), overlayFor(user));
 
+    // /blocks/<path>/<size>-<index>.bin: one 1 MB block of a shipped game file (Data/ only, never a user-data file),
+    // cacheable for a year by the browser and the CDN (.bin is an extension Cloudflare caches). WebVfs fetches these and
+    // falls back to /game/ Range requests. ponytail: the URL only changes with the file's size; replacing a file with
+    // a same-sized one needs a cache purge.
+    if (path.startsWith("/blocks/")) {
+        const m = /^\/blocks\/(Data\/.+)\/(\d+)-(\d+)\.bin$/i.exec(path);
+        const size = m ? baseFiles.get(m[1]) : undefined;
+        const start = m ? Number(m[3]) * BLOCK_BYTES : 0;
+        if (size === undefined || size !== Number(m[2]) || start >= size) return res.writeHead(404, ISOLATION).end();
+        const end = Math.min(start + BLOCK_BYTES, size) - 1;
+        res.writeHead(200, { ...ISOLATION, "Content-Type": "application/octet-stream", "Content-Length": end - start + 1,
+            "Cache-Control": "public, max-age=31536000, immutable" });
+        if (req.method === "HEAD") return res.end();
+        return createReadStream(join(gameDir, m[1]), { start, end }).pipe(res);
+    }
+
     if (path.startsWith("/game/")) {
         // Only manifest entries are served, so no path can escape the game or user-data directory.
         const found = lookupGameFile(overlayFor(user), path.slice("/game/".length));
@@ -238,7 +262,13 @@ const server = createServer(async (req, res) => {
     for (const dir of webDirs) {
         try {
             const st = statSync(join(dir, name));
-            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream", extra);
+            // Revalidated on every load (no-cache), so a 68 MB Wow.wasm is only sent again when it changed. The CDN may
+            // weaken the tag when it compresses.
+            const etag = `"${st.size.toString(36)}-${Math.trunc(st.mtimeMs).toString(36)}"`;
+            if ((req.headers["if-none-match"] ?? "").replace(/^W\//, "") === etag) {
+                return res.writeHead(304, { ...ISOLATION, ETag: etag, "Cache-Control": "no-cache", ...extra }).end();
+            }
+            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream", { ...extra, ETag: etag });
         } catch {}
     }
     res.writeHead(404, ISOLATION).end();

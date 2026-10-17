@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <dirent.h>
+#include <strings.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <emscripten.h>
@@ -54,6 +55,25 @@ EM_JS(int, WebVfsFetchRange, (const char* path, double offset, int count, void* 
     var length = Math.min(bytes.length, count);
     HEAPU8.set(bytes.subarray(0, length), dst);
     return length;
+});
+
+// One 1 MB block of an immutable game file, from its own URL (/blocks/<path>/<size>-<index>.bin) that the bridge
+// marks cacheable for a year, so the browser's disk cache and the CDN keep it across visits. Returns the byte count,
+// or -1 (the caller then falls back to a Range request).
+EM_JS(int, WebVfsFetchBlock, (const char* path, double size, double index, int count, void* dst), {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/blocks/" + UTF8ToString(path).split("/").map(encodeURIComponent).join("/") + "/" + size + "-" + index + ".bin", false);
+    xhr.responseType = "arraybuffer";
+    try {
+        xhr.send();
+    } catch (e) {
+        return -1;
+    }
+    if (xhr.status !== 200 || xhr.response.byteLength !== count) {
+        return -1;
+    }
+    HEAPU8.set(new Uint8Array(xhr.response), dst);
+    return count;
 });
 
 // Whole-file upload / delete in the bridge's user-data overlay. Both return the HTTP status, or -1. The header is what
@@ -347,7 +367,15 @@ BlockData GetBlock(int file, int64_t index) {
     int32_t count = static_cast<int32_t>(std::min(kBlockSize, remote.m_size - offset));
     auto data = std::make_shared<std::vector<uint8_t>>(count > 0 ? count : 0);
 
-    if (count <= 0 || WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) != count) {
+    // Data/ only ever holds the shipped game files; everything else may be a player's own (user-data overlay) file.
+    bool immutable = remote.m_path.size() > 5 && !strncasecmp(remote.m_path.c_str(), "Data/", 5);
+
+    if (count <= 0) {
+        return nullptr;
+    }
+
+    if ((!immutable || WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) != count)
+        && WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) != count) {
         return nullptr;
     }
 
