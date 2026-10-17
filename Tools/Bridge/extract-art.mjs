@@ -182,7 +182,10 @@ for (const name of SCREENS) {
     }
 }
 writeFileSync(join(outDir, "loading-art.json"), JSON.stringify({ screens }));
-console.log(`extract-art: ${screens.length} loading screens and the loading bar written to ${outDir}`);
+// The font the client draws the loading-screen tip in (LoadingScreen.cpp, enUS).
+const font = readFile("Fonts\\FRIZQT__.TTF");
+if (font) writeFileSync(join(outDir, "loading-font.ttf"), font);
+console.log(`extract-art: ${screens.length} loading screens, the loading bar${font ? " and the tip font" : ""} written to ${outDir}`);
 
 // ---- World maps (the admin page's live map, admin.mjs) -------------------------------------------------------------
 // Each continent's painting (12 256 x 256 tiles, 1002 x 668 of them used, as the client's WorldMapFrame), its world

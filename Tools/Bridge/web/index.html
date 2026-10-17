@@ -43,8 +43,13 @@
     #border { left: 20%; bottom: 5%; width: 60%; height: 5%; background-image: url("loading-bar-border.png"); }
     #status { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; color: #ffd200;
               font: 15px Georgia, serif; text-shadow: 1px 1px 0 #000; }
-    #tip { position: absolute; left: 10%; right: 10%; bottom: 16%; text-align: center; color: #fff;
-           font: 14px Georgia, serif; text-shadow: 1px 1px 0 #000, 0 0 6px #000; transition: opacity .4s; }
+    /* The client's tip (LoadingScreenEnable): Friz Quadrata at 0.018 of the screen height, light grey, a one-pixel
+       shadow, left-aligned in a centred box 515/768 of the height wide, its bottom resting on the bar. */
+    @font-face { font-family: "Friz Quadrata"; src: url("loading-font.ttf"); }
+    #screen { container-type: size; }
+    #tip { position: absolute; left: 50%; bottom: 10%; width: 67.06cqh; transform: translateX(-50%);
+           color: rgba(200, 200, 200, .84); font: max(1.8cqh, 11px)/1.28 "Friz Quadrata", Georgia, serif;
+           text-shadow: .1cqh .1cqh 0 #000; transition: opacity .4s; }
     #tip.out { opacity: 0; }
     #tip a { color: #ffd200; }
 
