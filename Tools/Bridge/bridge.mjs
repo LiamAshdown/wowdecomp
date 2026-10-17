@@ -26,6 +26,7 @@ import { connect } from "node:net";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account.mjs";
+import { createAdmin } from "./admin.mjs";
 import { ALLOWED_DIRS, MAX_FILE_BYTES, userPath } from "./userdata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -55,7 +56,9 @@ if (existsSync(envFile)) {
         if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
     }
 }
-const accounts = createAccountService(process.env.WOW_BRIDGE_DB);
+// /admin and the anonymous per-day usage counts (admin.mjs).
+const admin = createAdmin({ databaseUrl: process.env.WOW_BRIDGE_DB, password: process.env.WOW_BRIDGE_ADMIN_PASSWORD, secret: process.env.WOW_BRIDGE_SECRET });
+const accounts = createAccountService(process.env.WOW_BRIDGE_DB, admin.record);
 
 // ---- Per-browser cookie (hosted bridge only) -----------------------------------------------------------------------
 
@@ -220,11 +223,18 @@ const server = createServer(async (req, res) => {
 
     // The page is always the first request, so it is where a browser gets its cookie.
     let user = userOf(req), extra = {};
-    if (user === null && path === "/") [user, extra["Set-Cookie"]] = newUser();
+    if (user === null && path === "/") {
+        [user, extra["Set-Cookie"]] = newUser();
+        admin.record("new_browser");
+    }
     // Page files (one path segment: the page's images, scripts, the link-preview image) need no cookie, so link previews
     // can fetch them; game data, user data, accounts and the relay do.
     const pageFile = /^\/[\w.-]+$/.test(path) && path !== "/game-manifest.txt";
     if (user === null && !pageFile) return res.writeHead(403, ISOLATION).end();
+
+    if (await admin.handle(req, res, path, clientAddress(req))) {
+        return;
+    }
 
     if (path.startsWith("/account/") && await accounts(req, res, path, clientAddress(req))) {
         return;
@@ -319,6 +329,8 @@ server.on("upgrade", (req, socket) => {
 
     const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
     const protocol = (req.headers["sec-websocket-protocol"] ?? "").split(",")[0].trim();
+    // The client's world connection goes to the realm's port (8085), its login connection to the login server's.
+    admin.record(m[2] === "8085" ? "world_connection" : "login_connection");
     socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
         + `Sec-WebSocket-Accept: ${accept}\r\n` + (protocol ? `Sec-WebSocket-Protocol: ${protocol}\r\n` : "") + "\r\n");
     socket.setNoDelay(true);

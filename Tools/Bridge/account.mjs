@@ -112,7 +112,8 @@ export function accountDetails(row, ban, characters) {
     ];
 }
 
-export function createAccountService(databaseUrl) {
+// record(event) is told about created accounts (admin.mjs counts them).
+export function createAccountService(databaseUrl, record = () => {}) {
     let pool;
     const db = async () => {
         if (!databaseUrl) throw new Error("The account service is not configured (Tools/Bridge/bridge.env).");
@@ -141,6 +142,7 @@ export function createAccountService(databaseUrl) {
             if (error.code === "ER_DUP_ENTRY") return "ERR\nThat account name is already taken.";
             throw error;
         }
+        record("account_created");
         return `OK\nAccount ${user} created. You can log in now.`;
     }
 

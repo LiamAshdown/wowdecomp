@@ -116,7 +116,25 @@
     let progress = 0;
     const setProgress = (p) => { progress = Math.max(progress, Math.min(p, 1)); fill.style.width = `${progress * 52.5}%`; };
     let creep;
-    const fail = (text) => { clearInterval(creep); status.textContent = text; };
+
+    // Anonymous usage counts for the admin page (admin.mjs): the event, a browser family or failure reason, and the load
+    // time. Nothing identifying is sent.
+    const report = (event, detail = "", ms = 0) => fetch("/stats/event", {
+        method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, detail, ms }),
+    }).catch(() => {});
+    const ua = navigator.userAgent;
+    report("visit", /Edg\//.test(ua) ? "edge" : /Firefox\//.test(ua) ? "firefox" : /Chrome\//.test(ua) ? "chrome" : /Safari\//.test(ua) ? "safari" : "other");
+
+    let failed = false;
+    const fail = (text, reason = "other") => {
+        clearInterval(creep);
+        status.textContent = text;
+        if (!failed) report("load_failed", reason);
+        failed = true;
+    };
+    if (!document.createElement("canvas").getContext("webgl2")) {
+        fail("Your browser can't run the game (it needs WebGL 2). Try a recent Chrome, Edge or Firefox on a computer.", "webgl2");
+    }
 
     // The client reports when its glue frames are loaded and hands over window.wowFetchCount(), the number of game-data
     // blocks it has fetched (WebAccount.cpp). The login scene still streams in after that, so the loading screen stays
@@ -125,14 +143,15 @@
     // game itself stops drawing while it waits for data.
     const activity = document.getElementById("activity");
     let loaded = false;
-    const finishLoading = () => {
+    const finishLoading = (capped) => {
         if (loaded) return;
         loaded = true;
         clearInterval(creep);
         setProgress(1);
         setTimeout(() => loading.classList.add("done"), 200);
+        if (!capped) report("loaded", "", performance.now());
     };
-    setTimeout(finishLoading, 180_000);
+    setTimeout(() => finishLoading(true), 180_000);
     window.wowFramesLoaded = () => {
         let last = window.wowFetchCount(), changedAt = performance.now(), burstFrom = null;
         setInterval(() => {
@@ -144,7 +163,7 @@
                 if (!loaded) setProgress(progress + (0.99 - progress) * 0.03);
             } else if (now - changedAt >= 1500) {
                 burstFrom = null;
-                finishLoading();
+                finishLoading(false);
             }
             const showing = loaded && burstFrom !== null && now - burstFrom.at >= 700;
             activity.classList.toggle("on", showing);
@@ -153,7 +172,7 @@
     };
 
     if (!crossOriginIsolated) {
-        fail("This page has to be served by the Lasthavens bridge.");
+        fail("This page has to be served by the Lasthavens bridge.", "isolation");
     }
 
     var Module = {
@@ -187,7 +206,7 @@
                 creep = setInterval(() => setProgress(progress + (0.97 - progress) * 0.015), 100);
                 const { instance, module } = await WebAssembly.instantiate(bytes, info);
                 receive(instance, module);
-            })().catch((e) => fail(`Could not load the game (${e.message}). Reload the page to try again.`));
+            })().catch((e) => fail(`Could not load the game (${e.message}). Reload the page to try again.`, "download"));
             return {};
         },
     };
