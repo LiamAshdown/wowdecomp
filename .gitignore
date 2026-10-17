@@ -419,3 +419,4 @@ Tools/AzerothCore/test-account.env
 Tools/Bridge/bridge.env
 Tools/Deploy/.env
 Tools/Bridge/userdata/
+Tools/Bridge/addons/

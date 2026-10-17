@@ -1,0 +1,40 @@
+# Sources of the AddOn Library (fetch-addons.mjs). One entry per line:
+#   <entry> <git url> <branch|tag|-> [folder ...]
+# "-" is the default branch. No folders: the repository is the addon, installed as <entry>. Folders: the addon folders in
+# the repository (a "*" matches folder names), installed together; the one named <entry> is the main addon. A "from=to"
+# renames a file inside the entry afterwards.
+#
+# Hosting the library redistributes these addons, so only list ones whose license allows it, and keep the license here.
+# Left out: ElvUI, Details!, BigWigs, Bartender4, Omen, Postal and the other "All Rights Reserved" addons. Checked
+# 2026-10-17.
+
+# Included at the realm owner's own responsibility, without a clear license (2026-10-17): Questie-335 has none, and
+# DBM-Warmane's DBM-Core/license.txt (CC BY-NC-SA 3.0) conflicts with upstream DBM's later "All Rights Reserved".
+# Ask Aldori15 and Zidras for permission.
+Questie-335     https://github.com/Aldori15/Questie.git            335                # quest helper; the repository is the Questie-335 folder
+DBM-Core        https://github.com/Zidras/DBM-Warmane.git          -  DBM-*          # Deadly Boss Mods with the GUI and every zone mod
+
+# Auras and cooldowns
+WeakAuras       https://github.com/NoM0Re/WeakAuras-WotLK.git      -  WeakAuras WeakAurasOptions WeakAurasArchive WeakAurasModelPaths WeakAurasTemplates WeakAurasStopMotion  # GPL-2.0
+OmniCC          https://github.com/NoM0Re/OmniCC-WotLK.git         -  OmniCC*        # MIT
+TellMeWhen      https://github.com/bkader/TellMeWhen_3.3.5.git     -  TellMeWhen     # GPL-3.0 (upstream)
+
+# Damage meter
+Skada           https://github.com/bkader/Skada-WoTLK.git          -  Skada*         # MIT
+
+# Unit frames and action bars
+DragonUI        https://github.com/NeticSoul/DragonUI.git          -  DragonUI*      # MIT (code; Blizzard art keeps its own terms)
+Dominos         https://github.com/bkader/Dominos.git              -  Dominos*       # BSD-3-Clause (upstream)
+
+# Bags
+AdiBags         https://github.com/Sattva-108/AdiBags.git           -                 # GPL-3.0 (upstream)
+
+# Nameplates
+NotPlater       https://github.com/RichSteini/NotPlater.git        -  NotPlater-3.3.5.toc=NotPlater.toc  # MIT
+
+# Raid
+Grid2           https://github.com/bkader/Grid2-WoTLK.git          -  Grid2*         # zlib (upstream)
+MRT             https://github.com/ExoJdi/Method-Raid-Tools-3.3.5a.git -  MRT        # GPL-3.0
+
+# Loot
+AtlasLoot       https://github.com/Gescht/AtlasLoot3.3.5a.git      -  AtlasLoot*     # GPL-2.0

@@ -6,7 +6,8 @@
 #   docker compose up -d
 #
 # Host directories (DATA_DIR): client/ (the client's Data/, Interface/ and WTF/Config.wtf), web/ (Wow.js, Wow.wasm),
-# userdata/ (written by the bridge, owned by uid 1000).
+# addons/ (the AddOn Library: one folder per addon players may install; may be empty), userdata/ (written by the bridge,
+# owned by uid 1000).
 name: lasthavens
 
 x-ac-db: &ac-db
@@ -90,6 +91,7 @@ services:
     volumes:
       - ${DATA_DIR:-/opt/lastvale}/client:/data/client:ro
       - ${DATA_DIR:-/opt/lastvale}/web:/data/web:ro
+      - ${DATA_DIR:-/opt/lastvale}/addons:/data/addons:ro
       - ${DATA_DIR:-/opt/lastvale}/userdata:/data/userdata
     restart: unless-stopped
     networks:

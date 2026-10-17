@@ -72,8 +72,9 @@
 #include "WoW/Source/WowSvcs/WowSvcsClient/Types.h"
 
 #if defined(WOWDECOMP_PLATFORM_WEB)
-// Web build: in-client account creation and management (Web/WebAccount.cpp).
+// Web build: in-client account creation and management (Web/WebAccount.cpp) and the AddOn Library (Web/WebAddOns.cpp).
 void WebAccountInitialize();
+void WebAddOnsInitialize();
 #endif
 
 // STATIC: 0x009E2C28
@@ -766,6 +767,7 @@ void CGlueMgr::Resume() {
             FrameScript_SignalEvent(GLUE_EVENT_FRAMES_LOADED, nullptr);
 #if defined(WOWDECOMP_PLATFORM_WEB)
             WebAccountInitialize();
+            WebAddOnsInitialize();
 #endif
             CGlueMgr::InitializeFFX();
 
