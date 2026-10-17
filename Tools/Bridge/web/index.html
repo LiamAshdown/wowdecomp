@@ -59,6 +59,21 @@
         screen.style.backgroundImage = `url("${pick.file}")`;
     }).catch(() => loading.classList.add("plain"));
 
+    // The client reads game data one 1 MB block at a time with synchronous requests (WebVfs.cpp), ~0.2 s each on a first
+    // visit. Fetching the blocks it reads on its way to the login screen (login-blocks.txt) a few at a time while Wow.wasm
+    // downloads puts them in the browser cache before it asks. Same URLs as WebVfsFetchBlock, so the cache entries match.
+    // More at once only slows Wow.wasm: a first visit is bandwidth-bound by then. A stale list costs bandwidth, not
+    // correctness. To re-record it, empty it, load the page in a fresh browser profile against
+    // `bridge.mjs --trace > trace.log` (with the deployment's WTF/Config.wtf: without SET movie "0" the intro
+    // cinematic is read too), then: grep -o '^GET /blocks/[^ ]*' trace.log | cut -c13- | awk '!seen[$0]++'
+    fetch("login-blocks.txt").then((r) => (r.ok ? r.text() : "")).then((text) => {
+        const urls = text.split("\n").filter(Boolean).map((p) => "/blocks/" + p.split("/").map(encodeURIComponent).join("/"));
+        const next = async () => {
+            for (let url; (url = urls.shift()); ) await fetch(url).then((r) => r.arrayBuffer()).catch(() => {});
+        };
+        for (let i = 0; i < 6; i++) next();
+    });
+
     // Progress: the download is the first 70%; startup creeps on until the client reports the login screen is up.
     let progress = 0;
     const setProgress = (p) => { progress = Math.max(progress, Math.min(p, 1)); fill.style.width = `${progress * 52.5}%`; };
