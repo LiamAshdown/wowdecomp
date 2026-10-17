@@ -663,19 +663,18 @@ fullscreen:SetScript("OnClick", function() PlaySound("gsTitleOptions") WebToggle
 AccountLoginCommunityButton:SetText("Join Discord")
 AccountLoginCommunityButton:SetScript("OnClick", function() LaunchURL("https://discord.gg/2EZTV34rfN") end)
 
--- Login screen: "Manage Account" opens the dialog instead of a web page, and a "Create Account" button sits above it.
+-- Login screen: "Manage Account" opens the dialog instead of a web page.
 local manage = AccountLoginManageAccountButton
 manage:SetScript("OnClick", function() WebAccountDialog_Show("signin") end)
 
-local create = CreateFrame("Button", "WebAccountCreateButton", manage:GetParent(), "GlueButtonTemplate")
-create:SetWidth(manage:GetWidth())
-create:SetHeight(manage:GetHeight())
-create:SetPoint("BOTTOM", manage, "TOP", 0, 2)
+-- "Create Account" sits right above Login, in the red template so a first-time player sees it before anything else.
+-- It takes the gap between the password box and Login, where the authenticator box would go (AzerothCore never asks).
+local login = AccountLoginLoginButton
+local create = CreateFrame("Button", "WebAccountCreateButton", login:GetParent(), "GlueButtonTemplate")
+create:SetWidth(login:GetWidth())
+create:SetHeight(login:GetHeight() - 5)
+create:SetPoint("BOTTOM", login, "TOP", 0, 2)
 create:SetText("Create Account")
--- The red template stands out as the primary action; the fonts match the small buttons below it.
-create:SetNormalFontObject(manage:GetNormalFontObject())
-create:SetHighlightFontObject(manage:GetHighlightFontObject())
-create:SetDisabledFontObject(manage:GetDisabledFontObject())
 create:SetScript("OnClick", function() WebAccountDialog_Show("create") end)
 
 -- AzerothCore accounts are names, not Battle.net email logins.
