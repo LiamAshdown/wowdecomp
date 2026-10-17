@@ -631,6 +631,10 @@ subtitle:SetTextColor(0.78, 0.88, 1)
 subtitle:SetPoint("TOP", title, "BOTTOM", 0, 2)
 subtitle:SetText("Wrath of the Lich King")
 
+-- "Community Site" becomes the realm's Discord.
+AccountLoginCommunityButton:SetText("Join Discord")
+AccountLoginCommunityButton:SetScript("OnClick", function() LaunchURL("https://discord.gg/2EZTV34rfN") end)
+
 -- Login screen: "Manage Account" opens the dialog instead of a web page, and a "Create Account" button sits above it.
 local manage = AccountLoginManageAccountButton
 manage:SetScript("OnClick", function() WebAccountDialog_Show("signin") end)
