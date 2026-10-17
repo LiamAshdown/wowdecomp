@@ -180,7 +180,7 @@ async function handleUserData(req, res, rel, o) {
 }
 
 const BLOCK_BYTES = 1 << 20;   // WebVfs kBlockSize
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain" };
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".json": "application/json" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
@@ -268,7 +268,7 @@ const server = createServer(async (req, res) => {
             if ((req.headers["if-none-match"] ?? "").replace(/^W\//, "") === etag) {
                 return res.writeHead(304, { ...ISOLATION, ETag: etag, "Cache-Control": "no-cache", ...extra }).end();
             }
-            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream", { ...extra, ETag: etag });
+            return sendFile(req, res, join(dir, name), st.size, MIME[extname(name)] ?? "application/octet-stream", { ...extra, ETag: etag, "X-File-Size": st.size });
         } catch {}
     }
     res.writeHead(404, ISOLATION).end();

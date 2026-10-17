@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Local bridge for the browser build (see bridge.mjs)",
   "dependencies": {
+    "@wowserhq/stormjs": "0.4.1",
     "mysql2": "3.11.3"
   }
 }

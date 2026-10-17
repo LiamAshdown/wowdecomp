@@ -12,22 +12,29 @@
            background: rgba(0, 0, 0, .75); white-space: pre-wrap; pointer-events: none; z-index: 2; }
     #log.hidden { display: none; }
 
-    /* Plain on purpose: a status line and a hairline bar along the bottom edge, like the game's own loading bar. */
-    #loading { position: fixed; inset: 0; z-index: 1; background: #000; color: #9a968c; font: 13px/1.4 monospace;
-               transition: opacity .4s; }
+    /* The client's own loading screen (LoadingScreen.cpp): a painting letterboxed to 4:3 or 16:10, the bar border
+       0.6 x 0.05 of it centred 0.075 up from the bottom, the fill 0.525 x 0.025 growing from the left. The textures
+       are extracted from the game data on the server (extract-art.mjs). */
+    #loading { position: fixed; inset: 0; z-index: 1; background: #000; display: flex; align-items: center;
+               justify-content: center; transition: opacity .25s; }
     #loading.done { opacity: 0; pointer-events: none; }
-    #status { position: absolute; left: 16px; bottom: 14px; }
-    #status.error { color: #d9826f; }
-    #bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
-    #fill { width: 0; height: 100%; background: #8a7344; }
-    #bar.busy #fill { width: 100%; opacity: .35; }
+    #screen { position: relative; width: min(100vw, calc(100vh * var(--ratio, 1.6)));
+              aspect-ratio: var(--ratio, 1.6); background: center / 100% 100% no-repeat; }
+    #fill, #border { position: absolute; background: left / 100% 100% no-repeat; }
+    #fill { left: 23.75%; bottom: 6.25%; width: 0; height: 2.5%; background-image: url("loading-bar-fill.png"); }
+    #border { left: 20%; bottom: 5%; width: 60%; height: 5%; background-image: url("loading-bar-border.png"); }
+    #status { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; color: #ffd200;
+              font: 15px Georgia, serif; text-shadow: 1px 1px 0 #000; }
+
+    /* Without extracted art (a local bridge): the same bar, drawn plainly. */
+    #loading.plain #border { border: 1px solid #555; box-sizing: border-box; background: none; }
+    #loading.plain #fill { background: #2d6f8f; }
 </style>
 </head>
 <body>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <div id="loading">
-    <div id="status">lasthavens: connecting</div>
-    <div id="bar"><div id="fill"></div></div>
+    <div id="screen"><div id="fill"></div><div id="border"></div><div id="status"></div></div>
 </div>
 <pre id="log" class="hidden"></pre>
 <script>
@@ -41,23 +48,33 @@
     addEventListener("keydown", (e) => { if (e.key === "F10") { log.classList.toggle("hidden"); e.preventDefault(); } });
 
     const loading = document.getElementById("loading");
-    const bar = document.getElementById("bar");
+    const screen = document.getElementById("screen");
     const fill = document.getElementById("fill");
     const status = document.getElementById("status");
-    const fail = (text) => {
-        bar.classList.remove("busy");
-        status.classList.add("error");
-        status.textContent = text;
-    };
+
+    // A random painting, as the client picks one per zone.
+    fetch("loading-art.json").then((r) => (r.ok ? r.json() : Promise.reject())).then(({ screens }) => {
+        const pick = screens[Math.floor(Math.random() * screens.length)];
+        screen.style.setProperty("--ratio", pick.wide ? 1.6 : 4 / 3);
+        screen.style.backgroundImage = `url("${pick.file}")`;
+    }).catch(() => loading.classList.add("plain"));
+
+    // Progress: the download is the first 70%; startup creeps on until the client reports the login screen is up.
+    let progress = 0;
+    const setProgress = (p) => { progress = Math.max(progress, Math.min(p, 1)); fill.style.width = `${progress * 52.5}%`; };
+    let creep;
+    const fail = (text) => { clearInterval(creep); status.textContent = text; };
 
     // Called by the client once the login screen is loaded (WebAccount.cpp).
-    window.wowLoaded = () => loading.classList.add("done");
+    window.wowLoaded = () => {
+        clearInterval(creep);
+        setProgress(1);
+        setTimeout(() => loading.classList.add("done"), 200);
+    };
 
     if (!crossOriginIsolated) {
-        fail("lasthavens: this page has to be served by the bridge (Tools/Bridge/bridge.mjs)");
+        fail("This page has to be served by the Lasthavens bridge.");
     }
-
-    const MB = (bytes) => (bytes / 1048576).toFixed(0);
 
     var Module = {
         canvas: document.getElementById("canvas"),
@@ -69,8 +86,9 @@
             (async () => {
                 const response = await fetch("Wow.wasm");
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                // A compressed response has no usable length; then only the downloaded size is shown.
-                const total = response.headers.get("content-encoding") ? 0 : Number(response.headers.get("content-length") ?? 0);
+                // The CDN compresses it, so the bridge also sends the real size.
+                const total = Number(response.headers.get("x-file-size") ?? 0)
+                    || (response.headers.get("content-encoding") ? 0 : Number(response.headers.get("content-length") ?? 0));
                 const reader = response.body.getReader();
                 const chunks = [];
                 let received = 0;
@@ -79,22 +97,21 @@
                     if (done) break;
                     chunks.push(value);
                     received += value.length;
-                    if (total) fill.style.width = `${(received / total) * 100}%`;
-                    status.textContent = total ? `lasthavens: downloading client ${MB(received)}/${MB(total)} MB` : `lasthavens: downloading client ${MB(received)} MB`;
+                    if (total) setProgress((received / total) * 0.7);
                 }
                 const bytes = new Uint8Array(received);
                 let at = 0;
                 for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
 
-                bar.classList.add("busy");
-                status.textContent = "lasthavens: starting";
+                setProgress(0.7);
+                creep = setInterval(() => setProgress(progress + (0.97 - progress) * 0.015), 100);
                 const { instance, module } = await WebAssembly.instantiate(bytes, info);
                 receive(instance, module);
-            })().catch((e) => fail(`lasthavens: could not load the client (${e.message}), reload to retry`));
+            })().catch((e) => fail(`Could not load the game (${e.message}). Reload the page to try again.`));
             return {};
         },
     };
-    window.addEventListener("error", (e) => { if (!loading.classList.contains("done")) fail(`lasthavens: ${e.message}`); });
+    window.addEventListener("error", (e) => { if (!loading.classList.contains("done")) fail(e.message); });
 </script>
 <script src="Wow.js"></script>
 </body>
