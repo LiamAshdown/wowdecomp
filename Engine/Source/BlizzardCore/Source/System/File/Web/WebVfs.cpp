@@ -382,8 +382,9 @@ BlockData GetBlock(int file, int64_t index) {
 
     auto data = std::make_shared<std::vector<uint8_t>>(count);
 
-    // Data/ only ever holds the shipped game files; everything else may be a player's own (user-data overlay) file.
-    bool immutable = remote.m_path.size() > 5 && !strncasecmp(remote.m_path.c_str(), "Data/", 5);
+    // Data/ and Interface/AddOns/ only ever hold shipped game files and AddOn Library addons; everything else may be a
+    // player's own (user-data overlay) file.
+    bool immutable = !strncasecmp(remote.m_path.c_str(), "Data/", 5) || !strncasecmp(remote.m_path.c_str(), "Interface/AddOns/", 17);
 
     s_fetchCount.fetch_add(1, std::memory_order_relaxed);
 
