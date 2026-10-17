@@ -63,6 +63,12 @@ services:
     environment:
       <<: *ac-db
       AC_WARDEN_ENABLED: "0"   # wowdecomp's Warden client is a stub and never answers
+      # Realm rules: PvP (setup.sql sets the matching realm list icon), 2x XP.
+      AC_GAME_TYPE: "1"
+      AC_RATE_XP_KILL: "2"
+      AC_RATE_XP_QUEST: "2"
+      AC_RATE_XP_QUEST_DF: "2"
+      AC_RATE_XP_EXPLORE: "2"
     volumes:
       - ac-logs:/azerothcore/env/dist/logs
       - ac-client-data:/azerothcore/env/dist/data:ro
