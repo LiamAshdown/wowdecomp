@@ -43,6 +43,10 @@
     #border { left: 20%; bottom: 5%; width: 60%; height: 5%; background-image: url("loading-bar-border.png"); }
     #status { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; color: #ffd200;
               font: 15px Georgia, serif; text-shadow: 1px 1px 0 #000; }
+    #tip { position: absolute; left: 10%; right: 10%; bottom: 16%; text-align: center; color: #fff;
+           font: 14px Georgia, serif; text-shadow: 1px 1px 0 #000, 0 0 6px #000; transition: opacity .4s; }
+    #tip.out { opacity: 0; }
+    #tip a { color: #ffd200; }
 
     /* Shown while game data downloads after the login screen; in the client's gold with its text shadow. */
     #activity { position: fixed; left: 0; right: 0; bottom: 20%; z-index: 1; text-align: center; pointer-events: none;
@@ -60,7 +64,7 @@
 <body>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <div id="loading">
-    <div id="screen"><div id="fill"></div><div id="border"></div><div id="status"></div></div>
+    <div id="screen"><div id="fill"></div><div id="border"></div><div id="status"></div><div id="tip"></div></div>
 </div>
 <div id="activity">Downloading game data<span></span></div>
 <pre id="log" class="hidden"></pre>
@@ -90,6 +94,24 @@
     const screen = document.getElementById("screen");
     const fill = document.getElementById("fill");
     const status = document.getElementById("status");
+
+    // Community tips above the bar, a new one every 8 s, Discord first. The game shows its own gameplay tips in the world.
+    const discord = '<a href="https://discord.gg/2EZTV34rfN" target="_blank" rel="noopener">Discord</a>';
+    const tips = [
+        `Join the Lasthavens community on ${discord}.`,
+        `Found a bug? Report it on ${discord} and we'll fix it.`,
+        `Got an idea for the realm? Share it with us on ${discord}.`,
+        `Looking for a group? Ask on ${discord}, someone's usually around.`,
+        "Bring a friend: send them lasthavens.com. There's nothing to install.",
+        "Pick up curated addons from the AddOn Library at character select.",
+    ];
+    const tip = document.getElementById("tip");
+    let tipAt = 0;
+    tip.innerHTML = tips[tipAt++];
+    const tipTimer = setInterval(() => {
+        tip.classList.add("out");
+        setTimeout(() => { tip.innerHTML = tips[tipAt++ % tips.length]; tip.classList.remove("out"); }, 400);
+    }, 8000);
 
     // A random painting, as the client picks one per zone.
     fetch("loading-art.json").then((r) => (r.ok ? r.json() : Promise.reject())).then(({ screens }) => {
@@ -135,6 +157,8 @@
     let failed = false;
     const fail = (text, reason = "other") => {
         clearInterval(creep);
+        clearInterval(tipTimer);
+        tip.hidden = true;
         status.textContent = text;
         if (!failed) report("load_failed", reason);
         failed = true;
@@ -154,6 +178,7 @@
         if (loaded) return;
         loaded = true;
         clearInterval(creep);
+        clearInterval(tipTimer);
         setProgress(1);
         setTimeout(() => loading.classList.add("done"), 200);
         if (!capped) report("loaded", "", performance.now());
