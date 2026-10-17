@@ -620,6 +620,10 @@ create:SetWidth(manage:GetWidth())
 create:SetHeight(manage:GetHeight())
 create:SetPoint("BOTTOM", manage, "TOP", 0, 2)
 create:SetText("Create Account")
+-- The red template stands out as the primary action; the fonts match the small buttons below it.
+create:SetNormalFontObject(manage:GetNormalFontObject())
+create:SetHighlightFontObject(manage:GetHighlightFontObject())
+create:SetDisabledFontObject(manage:GetDisabledFontObject())
 create:SetScript("OnClick", function() WebAccountDialog_Show("create") end)
 
 -- AzerothCore accounts are names, not Battle.net email logins.
