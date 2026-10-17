@@ -56,6 +56,18 @@
     // The log starts hidden; F10 toggles it.
     addEventListener("keydown", (e) => { if (e.key === "F10") { log.classList.toggle("hidden"); e.preventDefault(); } });
 
+    // Alt+Enter and the login screen's Fullscreen button (Input.cpp, WebAccount.cpp). In fullscreen, Esc goes to the game
+    // (Keyboard Lock, where supported) so it still closes menus; holding it leaves fullscreen.
+    window.wowToggleFullscreen = () => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+            return;
+        }
+        document.documentElement.requestFullscreen({ navigationUI: "hide" })
+            .then(() => navigator.keyboard?.lock?.(["Escape"]))
+            .catch(() => {});
+    };
+
     const loading = document.getElementById("loading");
     const screen = document.getElementById("screen");
     const fill = document.getElementById("fill");

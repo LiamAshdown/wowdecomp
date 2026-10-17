@@ -6,6 +6,7 @@ SERVERALERT:
 <br/>
 <h2>Getting started</h2>
 <p>New here? Click Create Account, then log in with the name and password you picked.</p>
+<p>Press Alt+Enter (or the Fullscreen button) to play fullscreen.</p>
 <br/>
 <h2>Latest changes</h2>
 <p>- Clouds and the night sky render properly</p>

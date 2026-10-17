@@ -30,6 +30,8 @@ static uint32_t s_osButtonState;
 static int32_t s_mouseX;
 static int32_t s_mouseY;
 static std::atomic<OS_MOUSE_MODE> s_osMouseMode{OS_MOUSE_MODE_NORMAL};
+// Whether this stretch of relative mode already asked for pointer lock (OnMouseMove).
+static std::atomic<bool> s_pointerLockRequested{false};
 static float s_mouseSpeed = 1.0f;
 static int32_t s_WindowResizeLock;
 static void (*s_eventPollProc)();
@@ -349,6 +351,18 @@ static bool OnKey(int eventType, const EmscriptenKeyboardEvent* event, void* use
         g_webGxDumpRequest = 1;
     }
 
+    // Alt+Enter toggles fullscreen, as it switches between windowed and fullscreen in the native client. The page does
+    // the switch (index.html); the key press is the user activation the browser asks for.
+    if (key == KEY_ENTER && event->altKey) {
+        if (eventType == EMSCRIPTEN_EVENT_KEYDOWN && !event->repeat) {
+            MAIN_THREAD_ASYNC_EM_ASM({
+                if (window.wowToggleFullscreen) window.wowToggleFullscreen();
+            });
+        }
+
+        return true;
+    }
+
     OsQueuePut(eventType == EMSCRIPTEN_EVENT_KEYDOWN ? OS_INPUT_KEY_DOWN : OS_INPUT_KEY_UP, key, 1, 0, 0);
 
     // The page toggles its log on F10, and ctrl+C/V/X must reach the browser for the clipboard events.
@@ -409,8 +423,6 @@ static bool OnMouseDown(int eventType, const EmscriptenMouseEvent* event, void* 
     int32_t y;
     if (s_osMouseMode == OS_MOUSE_MODE_RELATIVE) {
         OsInputGetMousePosition(&x, &y);
-        // Pointer lock needs this user gesture if the lock requested by OsInputSetMouseMode did not take.
-        emscripten_request_pointerlock("#canvas", false);
     } else {
         ClientToCanvas(event->clientX, event->clientY, &x, &y);
 
@@ -467,6 +479,29 @@ static bool OnMouseMove(int eventType, const EmscriptenMouseEvent* event, void* 
             s_pendingDX += dx;
             s_pendingDY += dy;
             pthread_mutex_unlock(&s_queueLock);
+        }
+
+        // movementX/Y work without pointer lock, and every lock makes the browser show "press Esc to show your cursor"
+        // (the game enters relative mode on any press in the world, clicks included). So the lock is only taken when
+        // the hidden cursor nears the edge of the window, where the movement would otherwise stop.
+        if (!s_pointerLockRequested) {
+            double width = 0.0;
+            double height = 0.0;
+            emscripten_get_element_css_size("#canvas", &width, &height);
+            const double margin = 32.0;
+
+            if (event->clientX < margin || event->clientY < margin || event->clientX > width - margin || event->clientY > height - margin) {
+                s_pointerLockRequested = true;
+                MAIN_THREAD_ASYNC_EM_ASM({
+                    try {
+                        var lock = document.getElementById('canvas').requestPointerLock();
+                        if (lock && lock.catch) {
+                            lock.catch(function () {});
+                        }
+                    } catch (e) {
+                    }
+                });
+            }
         }
 
         return false;
@@ -629,21 +664,14 @@ void OsInputSetMouseMode(OS_MOUSE_MODE mode) {
         return;
     }
 
-    // The game switches to relative mode in reaction to the button press that started the drag, a few milliseconds
-    // after the click, which the browser's transient user activation still covers. While locked the cursor stays
-    // hidden and frozen at the saved position, the way CenterMouse keeps it on Win64.
-    if (mode == OS_MOUSE_MODE_RELATIVE) {
+    // Relative mode runs on movementX/Y; OnMouseMove takes pointer lock only if a drag reaches the window edge (the
+    // click that started it still counts as the user activation the browser asks for).
+    s_pointerLockRequested = false;
+
+    if (mode != OS_MOUSE_MODE_RELATIVE) {
         MAIN_THREAD_ASYNC_EM_ASM({
-            try {
-                var lock = document.getElementById('canvas').requestPointerLock();
-                if (lock && lock.catch) {
-                    lock.catch(function () {});
-                }
-            } catch (e) {
-            }
+            if (document.pointerLockElement) document.exitPointerLock();
         });
-    } else {
-        MAIN_THREAD_ASYNC_EM_ASM({ document.exitPointerLock(); });
     }
 }
 

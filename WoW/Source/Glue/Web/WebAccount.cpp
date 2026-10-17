@@ -352,6 +352,14 @@ int32_t Script_WebLog(lua_State* L) {
     return 0;
 }
 
+// The Fullscreen button: the page switches (index.html), within the click's user activation.
+int32_t Script_WebToggleFullscreen(lua_State* L) {
+    MAIN_THREAD_ASYNC_EM_ASM({
+        if (window.wowToggleFullscreen) window.wowToggleFullscreen();
+    });
+    return 0;
+}
+
 // The account dialog and the login screen changes. AccountLogin* and TokenEnterDialog* come from the stock GlueXML.
 const char kAccountUi[] = R"lua(
 if not AccountLoginUI or WebAccountCreateButton then return end
@@ -645,6 +653,12 @@ subtitle:SetTextColor(0.78, 0.88, 1)
 subtitle:SetPoint("TOP", subtitleAnchor, "BOTTOM", 0, subtitleAnchor == title and 16 or 2)
 subtitle:SetText("Wrath of the Lich King")
 
+-- A Fullscreen button above Options, in the same style (Alt+Enter does the same anywhere).
+local fullscreen = CreateFrame("Button", "WebFullscreenButton", OptionsButton:GetParent(), "GlueButtonSmallTemplateBlue")
+fullscreen:SetPoint("BOTTOM", OptionsButton, "TOP", 0, 2)
+fullscreen:SetText("Fullscreen")
+fullscreen:SetScript("OnClick", function() PlaySound("gsTitleOptions") WebToggleFullscreen() end)
+
 -- "Community Site" becomes the realm's Discord.
 AccountLoginCommunityButton:SetText("Join Discord")
 AccountLoginCommunityButton:SetScript("OnClick", function() LaunchURL("https://discord.gg/2EZTV34rfN") end)
@@ -698,6 +712,7 @@ void WebAccountInitialize() {
     FrameScript_RegisterFunction("WebChangeEmail", Script_WebChangeEmail);
     FrameScript_RegisterFunction("WebChangePassword", Script_WebChangePassword);
     FrameScript_RegisterFunction("WebLog", Script_WebLog);
+    FrameScript_RegisterFunction("WebToggleFullscreen", Script_WebToggleFullscreen);
 
     FrameScript_Execute(kAccountUi, "WebAccount.lua", nullptr);
 
