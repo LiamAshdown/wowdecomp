@@ -52,6 +52,15 @@ static inline int fopen_s(FILE** f, const char* path, const char* mode) {
     return *f ? 0 : errno;
 }
 
+// MSVC's rand() range. The decompiled code scales rand() by 1/32767 (DayNight's cloud noise), and musl's RAND_MAX is
+// 0x7FFFFFFF, which blew the noise up 65536 times into black blocks. <cstdlib>'s "using ::rand" picks this up too.
+static inline int wowdecomp_rand(void) {
+    return rand() & 0x7FFF;
+}
+#define rand wowdecomp_rand
+#undef RAND_MAX
+#define RAND_MAX 0x7FFF
+
 // MSVC's std::type_info::raw_name() (decorated name, used only as an allocation tag); other compilers have name().
 #define raw_name name
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>World of Warcraft (wowdecomp)</title>
+<title>Lasthavens</title>
 <style>
     html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 12px/1.4 monospace; overflow: hidden; }
     #canvas { display: block; width: 100vw; height: 100vh; outline: none; }
@@ -14,7 +14,7 @@
 </head>
 <body>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
-<pre id="log"></pre>
+<pre id="log" class="hidden"></pre>
 <script>
     const log = document.getElementById("log");
     const append = (text) => {
@@ -22,10 +22,11 @@
         log.scrollTop = log.scrollHeight;
         console.log(text);
     };
-    // F10 toggles the log.
+    // The log starts hidden; F10 toggles it.
     addEventListener("keydown", (e) => { if (e.key === "F10") { log.classList.toggle("hidden"); e.preventDefault(); } });
 
     if (!crossOriginIsolated) {
+        log.classList.remove("hidden");
         append("Page is not cross-origin isolated; serve it with Tools/Bridge/bridge.mjs.");
     }
 

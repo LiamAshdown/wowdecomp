@@ -341,8 +341,18 @@ bool SetGxCVars(const CGxFormat& format) {
     SStrPrintf(value, sizeof(value), "%d", format.m_window);
     s_cvGxWindow->Set(value, true, false, false, true);
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // The web device draws at the canvas size whatever was requested (CGxDeviceOpenGlWeb.cpp), and the UI takes its
+    // aspect ratio from gxResolution, so report the device's size. Writing the requested size back put a stale
+    // Config.wtf resolution over the canvas one and stretched the UI. InternalSet: the callback only accepts monitor
+    // modes, and the size must not be saved.
+    const C2iVector& size = g_theGxDevicePtr ? g_theGxDevicePtr->m_format.m_size : format.m_size;
+    SStrPrintf(value, sizeof(value), "%dx%d", size.x, size.y);
+    s_cvGxResolution->InternalSet(value, true, false, false, false);
+#else
     SStrPrintf(value, sizeof(value), "%dx%d", format.m_size.x, format.m_size.y);
     s_cvGxResolution->Set(value, true, false, false, true);
+#endif
 
     SStrPrintf(value, sizeof(value), "%d", format.m_refreshRate);
     s_cvGxRefresh->Set(value, true, false, false, true);

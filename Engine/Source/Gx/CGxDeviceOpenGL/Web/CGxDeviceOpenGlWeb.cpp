@@ -9,6 +9,7 @@
 #include <emscripten/html5.h>
 #include <cstdio>
 #include <cstring>
+#include "Engine/Source/Base/Coordinate.h"
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
 #include "Engine/Source/Gx/CGxDeviceOpenGL/CGxDeviceOpenGl.h"
 #include "Engine/Source/Os/Input.h"
@@ -231,7 +232,23 @@ void CGxDeviceOpenGl::ScenePresent() {
     }
 
     this->IShaderConstantsClear();
-    GlShimSetDump(g_webGxDumpRequest.exchange(0) != 0);
+    bool dump = g_webGxDumpRequest.exchange(0) != 0;
+
+    // The values the UI and world aspect come from, to compare with the page when the picture looks stretched.
+    if (dump) {
+        double cssWidth = 0.0;
+        double cssHeight = 0.0;
+        emscripten_get_element_css_size("#canvas", &cssWidth, &cssHeight);
+        CVar* resolution = CVar::Lookup("gxResolution");
+        CVar* widescreen = CVar::Lookup("widescreen");
+        const CRect& window = this->DeviceDefWindow();
+        printf("[Gx] css=%.0fx%.0f dpr=%.2f window=%.0fx%.0f format=%dx%d gxResolution=%s widescreen=%d coordAspect=%.3f\n",
+            cssWidth, cssHeight, emscripten_get_device_pixel_ratio(), window.maxX, window.maxY, this->m_format.m_size.x,
+            this->m_format.m_size.y, resolution ? resolution->m_stringValue.m_str : "?", widescreen ? widescreen->m_intValue : -1,
+            CoordinateGetAspectRatio());
+    }
+
+    GlShimSetDump(dump);
 }
 
 #endif
