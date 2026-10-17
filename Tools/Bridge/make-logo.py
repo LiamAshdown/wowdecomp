@@ -6,7 +6,8 @@ goes next to the game files on the server, never into the repository:
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <game dir>/Interface/Glues/LasthavensLogo.tga
 
 With a loading-screen painting (from extract-art.mjs) it also writes the 1200 x 630 link-preview image the page's
-Open Graph tags point at (index.html), and favicon.svg (the icon below), into the web directory:
+Open Graph tags point at (index.html), favicon.svg (the icon below), and the same icon as PNGs for the installed app
+(manifest.webmanifest: icon-192.png, icon-512.png) and the iOS home screen (apple-touch-icon.png), into the web directory:
 
     python Tools/Bridge/make-logo.py MORPHEUS.TTF <tga> <web dir>/loading-0.png <web dir>/og-image.jpg
 
@@ -197,8 +198,12 @@ if __name__ == "__main__":
     if len(sys.argv) >= 5:
         render_preview(title, sys.argv[1], sys.argv[3]).save(sys.argv[4], quality=88, optimize=True)   # .jpg: a fraction of PNG
         icon = render_icon(sys.argv[1], sys.argv[3])
-        with open(os.path.join(os.path.dirname(sys.argv[4]), "favicon.svg"), "w") as f:
+        web = os.path.dirname(sys.argv[4])
+        with open(os.path.join(web, "favicon.svg"), "w") as f:
             f.write(favicon_svg(icon))
+        # Full bleed, the letter well inside the middle 80%: Android masks it to its launcher's shape, iOS rounds it.
+        for name, size in (("icon-192.png", 192), ("icon-512.png", 512), ("apple-touch-icon.png", 180)):
+            icon.resize((size, size), Image.LANCZOS).save(os.path.join(web, name), optimize=True)
     if len(sys.argv) == 7:
         render_banner(title, sys.argv[5], sys.argv[3]).save(f"{sys.argv[6]}/discord-banner.png", optimize=True)
         icon.save(f"{sys.argv[6]}/discord-icon.png", optimize=True)

@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <emscripten.h>
 #include <emscripten/html5.h>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +16,8 @@
 #include "Engine/Source/Os/Input.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 
+double OsWebPixelRatio();
+int32_t OsWebTouchHidesCursor();
 void OsWebSetCursorVisible(int32_t visible);
 void OsWebSetWindowSize(int32_t width, int32_t height, bool notify);
 extern std::atomic<int> g_webGxDumpRequest;
@@ -23,12 +26,12 @@ static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE s_context;
 static int32_t s_canvasWindow;
 static int32_t s_frames;
 
-// The drawing buffer matches the canvas' CSS size in device pixels.
+// The drawing buffer is the canvas' CSS size in device pixels, times the page's render scale.
 static void CanvasSize(int32_t& width, int32_t& height) {
     double cssWidth = 0.0;
     double cssHeight = 0.0;
     emscripten_get_element_css_size("#canvas", &cssWidth, &cssHeight);
-    double ratio = emscripten_get_device_pixel_ratio();
+    double ratio = OsWebPixelRatio();
     width = static_cast<int32_t>(std::lround(cssWidth * ratio));
     height = static_cast<int32_t>(std::lround(cssHeight * ratio));
     width = width > 0 ? width : 1280;
@@ -96,6 +99,9 @@ static int32_t AttachContext(CGxDeviceOpenGl* device, const CGxFormat& format) {
             s_context = 0;
             return 0;
         }
+
+        // The page's ?stats line (index.html) counts presented frames.
+        MAIN_THREAD_ASYNC_EM_ASM({ window.wowFrameCount = function() { return HEAP32[$0 >> 2]; }; }, &s_frames);
     }
 
     emscripten_webgl_make_context_current(s_context);
@@ -222,7 +228,9 @@ void CGxDeviceOpenGl::ScenePresent() {
         this->DeviceScreenShot();
     }
 
-    this->ICursorDraw();
+    if (!OsWebTouchHidesCursor()) {
+        this->ICursorDraw();
+    }
 
     // ponytail: poll the page size twice a second instead of a resize callback; the input layer also reports
     // OS_INPUT_SIZE for the UI.
@@ -248,8 +256,8 @@ void CGxDeviceOpenGl::ScenePresent() {
         CVar* resolution = CVar::Lookup("gxResolution");
         CVar* widescreen = CVar::Lookup("widescreen");
         const CRect& window = this->DeviceDefWindow();
-        printf("[Gx] css=%.0fx%.0f dpr=%.2f window=%.0fx%.0f format=%dx%d gxResolution=%s widescreen=%d coordAspect=%.3f\n",
-            cssWidth, cssHeight, emscripten_get_device_pixel_ratio(), window.maxX, window.maxY, this->m_format.m_size.x,
+        printf("[Gx] css=%.0fx%.0f ratio=%.2f window=%.0fx%.0f format=%dx%d gxResolution=%s widescreen=%d coordAspect=%.3f\n",
+            cssWidth, cssHeight, OsWebPixelRatio(), window.maxX, window.maxY, this->m_format.m_size.x,
             this->m_format.m_size.y, resolution ? resolution->m_stringValue.m_str : "?", widescreen ? widescreen->m_intValue : -1,
             CoordinateGetAspectRatio());
     }

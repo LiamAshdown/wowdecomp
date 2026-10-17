@@ -115,8 +115,11 @@ namespace {
 
 const int kRemoteFdBase = 0x40000000;
 const int64_t kBlockSize = 1 << 20;
-// ponytail: fixed 256 MB block cache; make it a CVar if memory gets tight on big zones.
-const size_t kMaxBlocks = 256;
+// The block cache in MB, from the page (index.html: 256, or 64 on phones), read once.
+size_t MaxBlocks() {
+    static const size_t blocks = static_cast<size_t>(MAIN_THREAD_EM_ASM_INT({ return Math.max(16, window.wowCacheBlocks || 256); }));
+    return blocks;
+}
 
 struct RemoteFile {
     std::string m_path;
@@ -391,6 +394,8 @@ BlockData GetBlock(int file, int64_t index) {
     bool fetched = (immutable && WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) == count)
         || WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) == count;
 
+    // Before the lock: the first call waits on the main thread.
+    size_t maxBlocks = MaxBlocks();
     std::lock_guard<std::mutex> guard(s_cacheLock);
     s_fetching.erase(key);
     s_fetched.notify_all();
@@ -402,7 +407,7 @@ BlockData GetBlock(int file, int64_t index) {
     s_lru.push_front({ key, data });
     s_blocks[key] = s_lru.begin();
 
-    if (s_lru.size() > kMaxBlocks) {
+    if (s_lru.size() > maxBlocks) {
         s_blocks.erase(s_lru.back().m_key);
         s_lru.pop_back();
     }

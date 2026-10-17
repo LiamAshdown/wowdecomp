@@ -12,7 +12,11 @@
 //
 //   node Tools/Bridge/bridge.mjs [--host 127.0.0.1] [--port 8080] [--game bin/Win] [--userdata Tools/Bridge/userdata]
 //                                [--web bin/Web] [--addons Tools/Bridge/addons] [--allow 127.0.0.1:3724,127.0.0.1:8085]
-//                                [--trace]
+//                                [--trace] [--tls-cert cert.pem --tls-key key.pem]
+//
+// With --tls-cert and --tls-key it serves HTTPS, which a phone on the local network needs: browsers only allow the shared
+// memory wasm threads use on a secure origin, and http://<LAN address> is not one. A self-signed certificate for the
+// PC's address will do (the phone asks once to accept it); docs/mobile-plan.md has the command.
 //
 // An --allow entry may name another target, "127.0.0.1:3724=ac-authserver:3724", so the addresses the client knows
 // (realmlist.wtf and the realmlist table) stay 127.0.0.1 while the servers live elsewhere (Tools/Deploy).
@@ -25,7 +29,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { connect } from "node:net";
+import { createServer as createHttpsServer } from "node:https";
+import { connect, createServer as createNetServer } from "node:net";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account.mjs";
@@ -218,7 +223,7 @@ async function handleUserData(req, res, rel, o) {
 }
 
 const BLOCK_BYTES = 1 << 20;   // WebVfs kBlockSize
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json" };
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json", ".webmanifest": "application/manifest+json" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
@@ -245,7 +250,8 @@ function sendFile(req, res, file, size, type, extra = {}) {
     createReadStream(file).pipe(res);
 }
 
-const server = createServer(async (req, res) => {
+const tls = args["tls-cert"] && { cert: readFileSync(resolve(root, args["tls-cert"])), key: readFileSync(resolve(root, args["tls-key"])) };
+const server = (tls ? (handler) => createHttpsServer(tls, handler) : createServer)(async (req, res) => {
     let url, path;
     try {
         url = new URL(req.url, "http://x");
@@ -399,7 +405,23 @@ server.on("upgrade", (req, socket) => {
     socket.on("error", closeBoth);
 });
 
-server.listen(port, host, () => {
-    console.log(`bridge: http://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  addons=${library.size}  userdata=${userDir}${secret ? " (per browser)" : ""}`
+// With TLS the port also answers plain http, which a phone gets when the address is typed without "https://": the first
+// byte of a TLS connection is a handshake record (22), anything else is sent a redirect to the same address over https.
+const redirect = createServer((req, res) => {
+    res.writeHead(301, { Location: `https://${req.headers.host}${req.url}` });
+    res.end();
+});
+const listener = !tls ? server : createNetServer((socket) => {
+    socket.once("data", (data) => {
+        socket.pause();
+        socket.unshift(data);
+        (data[0] === 22 ? server : redirect).emit("connection", socket);
+        process.nextTick(() => socket.resume());
+    });
+    socket.on("error", () => socket.destroy());
+});
+
+listener.listen(port, host, () => {
+    console.log(`bridge: ${tls ? "https" : "http"}://${host}:${port}/  game=${gameDir} (${baseFiles.size} files)  addons=${library.size}  userdata=${userDir}${secret ? " (per browser)" : ""}`
         + `  relay=${[...allow].map(([a, b]) => a === b ? a : `${a}=${b}`).join(",")}`);
 });

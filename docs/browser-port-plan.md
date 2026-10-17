@@ -162,4 +162,4 @@ AddOn Library: a "Get AddOns" button at character select (`WoW/Source/Glue/Web/W
 7. **Licensing.** FMOD Ex source is free for non-commercial use only, with a credit line. Keep this a personal/local build.
 
 ## Browser target
-Desktop Chrome/Edge and Firefox. Safari works but has no MEMORY64 (not needed). S3TC is missing on iOS and Android, which means CPU DXT decode at about 4× memory. Mobile is out of scope.
+Desktop Chrome/Edge and Firefox. Safari works but has no MEMORY64 (not needed). S3TC is missing on iOS and Android, which means CPU DXT decode at about 4× memory. Mobile has its own plan: `docs/mobile-plan.md`.

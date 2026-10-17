@@ -75,6 +75,11 @@
 // Web build: in-client account creation and management (Web/WebAccount.cpp) and the AddOn Library (Web/WebAddOns.cpp).
 void WebAccountInitialize();
 void WebAddOnsInitialize();
+void OsWebTouchClearZones();
+void OsWebTouchSetDragProc(int32_t (*proc)());
+// Reconnecting after the page comes back from the background (Web/WebResume.cpp).
+bool WebResumeAfterDisconnect(WOWGUID guid);
+void WebResumeIdle();
 #endif
 
 // STATIC: 0x009E2C28
@@ -768,6 +773,9 @@ void CGlueMgr::Resume() {
 #if defined(WOWDECOMP_PLATFORM_WEB)
             WebAccountInitialize();
             WebAddOnsInitialize();
+            // The game UI's touch zones (WebTouch.cpp) would swallow taps here; the glue screens are mouse UIs.
+            OsWebTouchClearZones();
+            OsWebTouchSetDragProc(nullptr);
 #endif
             CGlueMgr::InitializeFFX();
 
@@ -1094,6 +1102,10 @@ void CGlueMgr::Initialize() {
 // VERIFY: 5e7db3b8 manual
 // OFFSET: 0x004DAB40
 int32_t CGlueMgr::Idle(const void* data, void* param) {
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    WebResumeIdle();
+#endif
+
     if (g_theGxDevicePtr->StereoEnabled()) {
         CGlueMgr::SetUIDepth(g_theGxDevicePtr->StereoGetConvergence());
     }
@@ -2268,12 +2280,24 @@ int32_t CGlueMgr::NetDisconnectHandler(NetClient* client) {
         return 1;
     }
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    WOWGUID worldGuid = CGlueMgr::m_suspended ? s_activeCharacterGuid : WOWGUID {};
+#endif
+
     ClientDestroyGame(0, 1, 0);
     EventSetMouseMode(MOUSE_MODE_NORMAL, 0);
 
     if (CGlueMgr::m_suspended) {
         CGlueMgr::Resume();
     }
+
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // Dropped while the page was in the background: no "Disconnected", the client reconnects once the player is back.
+    if (displayScript && WebResumeAfterDisconnect(worldGuid)) {
+        ClientServices::LoginConnection()->Logoff();
+        return 1;
+    }
+#endif
 
     if (displayScript) {
         ConsolePrintf("CGlueMgr::NetDisconnectHandler: Displaying script");

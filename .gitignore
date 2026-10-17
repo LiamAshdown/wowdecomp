@@ -420,3 +420,4 @@ Tools/Bridge/bridge.env
 Tools/Deploy/.env
 Tools/Bridge/userdata/
 Tools/Bridge/addons/
+Tools/Bridge/tls/

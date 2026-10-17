@@ -173,6 +173,11 @@
 #include "WoW/Source/DB/Rec/CreatureFamilyRec.h"
 #include "WoW/Source/DB/Rec/CreatureTypeRec.h"
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+void WebTouchInitialize();
+void WebTouchDefaultsInitialize();
+#endif
+
 // STATIC: 0x00ACC3F8
 CImVector s_deadSelectionColor = CImVector(0x7F, 0x7F, 0x7F, 0xFF);
 
@@ -1796,6 +1801,11 @@ void CGGameUI::InitializeFrameXML() {
     }
 
     BugReportRegister();
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // The touch HUD (Ui/Web/WebTouch.cpp) runs as Blizzard code, so it goes in before any addon.
+    WebTouchInitialize();
+    WebTouchDefaultsInitialize();
+#endif
     LoadAddOns(&status);
     FrameXML_RegisterLoadProgressCallback(nullptr, nullptr, 0);
     CGGameUI::Initialize();

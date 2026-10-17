@@ -5,9 +5,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <pthread.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <emscripten/proxying.h>
+#include <emscripten/threading.h>
 #include <windows.h>
 #include "Engine/Source/Event/Types.h"
 #include "Engine/Source/Os/Input.h"
@@ -32,6 +35,9 @@ static int32_t s_mouseY;
 static std::atomic<OS_MOUSE_MODE> s_osMouseMode{OS_MOUSE_MODE_NORMAL};
 // Whether this stretch of relative mode already asked for pointer lock (OnMouseMove).
 static std::atomic<bool> s_pointerLockRequested{false};
+// While the last input was a touch, the game's cursor is not drawn (CGxDeviceOpenGlWeb.cpp): no finger has a cursor
+// under it. A real mouse moving brings it back.
+static std::atomic<bool> s_touchInput{false};
 static float s_mouseSpeed = 1.0f;
 static int32_t s_WindowResizeLock;
 static void (*s_eventPollProc)();
@@ -121,6 +127,18 @@ void OsQueuePut(OSINPUT id, int32_t param0, int32_t param1, int32_t param2, int3
     pthread_mutex_unlock(&s_queueLock);
 }
 
+// A touch drag is queued with this in place of a button (OnTouch). Which button it presses is decided on the game thread
+// when the press comes out of the queue, because only the game knows whether the finger went down on the world (a right
+// drag, which turns the camera and the character) or on a frame (a left drag, which picks up or moves it).
+static const int32_t kTouchDragButton = 0x40000000;
+static int32_t (*s_touchDragProc)();
+static int32_t s_touchDragButton = MOUSE_BUTTON_LEFT;   // game thread only
+
+// Set by WebTouch.cpp: returns the MOUSEBUTTON a drag starting at the cursor presses.
+void OsWebTouchSetDragProc(int32_t (*proc)()) {
+    s_touchDragProc = proc;
+}
+
 int32_t OsQueueGet(OSINPUT* id, int32_t* param0, int32_t* param1, int32_t* param2, int32_t* param3) {
     pthread_mutex_lock(&s_queueLock);
 
@@ -142,19 +160,36 @@ int32_t OsQueueGet(OSINPUT* id, int32_t* param0, int32_t* param1, int32_t* param
 
     s_queueHead = s_queueHead == kQueueSize - 1 ? 0 : s_queueHead + 1;
 
+    // The moves before the press have been dispatched by now, so the game's mouse focus is the frame under the finger.
+    if ((*id == OS_INPUT_MOUSE_DOWN || *id == OS_INPUT_MOUSE_UP) && *param0 == kTouchDragButton) {
+        if (*id == OS_INPUT_MOUSE_DOWN) {
+            s_touchDragButton = s_touchDragProc ? s_touchDragProc() : MOUSE_BUTTON_LEFT;
+        }
+
+        s_osButtonState &= ~kTouchDragButton;
+        s_osButtonState = *id == OS_INPUT_MOUSE_DOWN ? s_osButtonState | s_touchDragButton : s_osButtonState & ~s_touchDragButton;
+        *param0 = s_touchDragButton;
+    }
+
     pthread_mutex_unlock(&s_queueLock);
 
     return 1;
 }
 
-// Canvas position inside the page in CSS pixels; the drawing buffer is the canvas CSS size times devicePixelRatio.
+// Drawing-buffer pixels per CSS pixel: devicePixelRatio times the page's render scale (index.html, below 1 on phones).
+// The Gx device sizes the canvas with it (CGxDeviceOpenGlWeb.cpp), so mouse coordinates use the same factor.
+double OsWebPixelRatio() {
+    return MAIN_THREAD_EM_ASM_DOUBLE({ return devicePixelRatio * (window.wowRenderScale || 1); });
+}
+
+// Canvas position inside the page in CSS pixels; the drawing buffer is the canvas CSS size times OsWebPixelRatio.
 EM_JS(double, WebCanvasOrigin, (int axis), {
     var rect = document.getElementById('canvas').getBoundingClientRect();
     return axis ? rect.top : rect.left;
 });
 
 static void ClientToCanvas(int32_t clientX, int32_t clientY, int32_t* x, int32_t* y) {
-    double scale = emscripten_get_device_pixel_ratio();
+    double scale = OsWebPixelRatio();
     *x = static_cast<int32_t>(std::lround((clientX - WebCanvasOrigin(0)) * scale));
     *y = static_cast<int32_t>(std::lround((clientY - WebCanvasOrigin(1)) * scale));
 }
@@ -167,7 +202,7 @@ static bool UpdateCanvasSize(bool notify) {
         return false;
     }
 
-    double scale = emscripten_get_device_pixel_ratio();
+    double scale = OsWebPixelRatio();
     int32_t width = static_cast<int32_t>(std::lround(cssWidth * scale));
     int32_t height = static_cast<int32_t>(std::lround(cssHeight * scale));
     if (width <= 0 || height <= 0) {
@@ -468,8 +503,10 @@ static bool OnMouseUp(int eventType, const EmscriptenMouseEvent* event, void* us
 }
 
 static bool OnMouseMove(int eventType, const EmscriptenMouseEvent* event, void* userData) {
+    s_touchInput = false;
+
     if (s_osMouseMode == OS_MOUSE_MODE_RELATIVE) {
-        double scale = emscripten_get_device_pixel_ratio();
+        double scale = OsWebPixelRatio();
         int32_t dx = static_cast<int32_t>(std::lround(event->movementX * scale));
         int32_t dy = static_cast<int32_t>(std::lround(event->movementY * scale));
 
@@ -588,6 +625,492 @@ static bool OnResize(int eventType, const EmscriptenUiEvent* event, void* userDa
     return false;
 }
 
+// ---- Touch (docs/mobile-plan.md, T3) ----
+// The touch HUD (WebTouch.cpp) owns screen regions, its zones: a finger that lands in one belongs to it, and drives the
+// stick or presses a button there. Any other finger drives the game's one cursor: a tap is a left click, a hold is a right
+// click, a drag is a left or right drag (decided in OsQueueGet), and two fingers pinch the camera zoom.
+// Zone rects are fractions of the canvas with y up, so they need no knowledge of the UI's coordinates. The zones, stick
+// and button events are guarded by s_queueLock; the fingers are only touched on the main thread.
+
+// A type zone is a button that also opens the phone keyboard: iOS only does that from inside the tap itself, and the game
+// would focus its edit box a frame later, so the field (OsIME.cpp) is focused here, while the finger lifts.
+enum { TOUCH_ZONE_NONE, TOUCH_ZONE_STICK, TOUCH_ZONE_BUTTON, TOUCH_ZONE_TYPE };
+
+struct TouchZone {
+    int32_t kind;
+    float left;
+    float bottom;
+    float right;
+    float top;
+};
+
+static const int32_t kMaxTouchZones = 64;
+static TouchZone s_touchZones[kMaxTouchZones];
+
+struct TouchStick {
+    bool active;
+    float x;
+    float y;
+    float originX;
+    float originY;
+};
+
+static TouchStick s_touchStick;
+
+// Button zone presses (+id) and releases (-id, or -(id + kTouchOutside) when the finger left the zone first) for
+// OsWebTouchNextEvent. A quick tap is both in one frame, so they queue.
+static const int32_t kTouchOutside = 1000;
+static const int32_t kTouchEventsSize = 64;
+static int32_t s_touchEvents[kTouchEventsSize];
+static int32_t s_touchEventsHead;
+static int32_t s_touchEventsTail;
+
+// How far the finger holding each button zone has moved since it pressed (CSS px, y up), and when it pressed and let go
+// (ms, 0 while held): thumb aiming and flicks in WebTouch.lua, timed here because the game's frames can lag.
+struct ZoneDrag {
+    float dx;
+    float dy;
+    double start;
+    double end;
+};
+
+static ZoneDrag s_zoneDrag[kMaxTouchZones];
+
+enum TouchRole { TOUCH_NONE, TOUCH_STICK, TOUCH_BUTTON, TOUCH_CURSOR, TOUCH_PINCH, TOUCH_IGNORED };
+
+struct Finger {
+    int32_t id;
+    TouchRole role;
+    int32_t zone;
+    double startX;
+    double startY;
+    double x;
+    double y;
+    double startTime;
+    bool dragging;
+};
+
+static Finger s_fingers[10];
+
+
+int32_t OsWebTouchHidesCursor() {
+    return s_touchInput;
+}
+static double s_pinchDistance;
+static double s_pinchWheel;
+static double s_pinchStart;
+static double s_pinchTravel;
+
+static const double kTouchSlop = 10.0;      // CSS px a finger moves before a tap becomes a drag
+// Set from the Touch options (WebTouch.cpp): a tap held this long is a right click, and a camera drag turns this much
+// faster than the finger moves. Main thread only.
+static double s_touchHoldMs = 450.0;
+static double s_touchCameraSpeed = 1.0;
+static const double kStickRadius = 56.0;    // CSS px for full deflection; WebTouch.lua moves the knob as far
+static const double kPinchStep = 30.0;      // CSS px of pinch per camera zoom step
+static const double kTwoFingerTapMs = 300.0; // two fingers down and up this quickly, barely moving, is Escape
+
+// Pinch steps go to WebTouch.lua as these "zones" (above kMaxTouchZones): the camera zooms whatever frame the fingers are
+// over, where the wheel would scroll a chat frame or a list instead.
+static const int32_t kTouchZoomIn = 100;
+static const int32_t kTouchZoomOut = 101;
+
+void OsWebTouchSetZone(int32_t id, int32_t kind, float left, float bottom, float right, float top) {
+    if (id < 0 || id >= kMaxTouchZones) {
+        return;
+    }
+
+    pthread_mutex_lock(&s_queueLock);
+    s_touchZones[id] = { kind, left, bottom, right, top };
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+// The game UI is going away (a reload, or back to the glue screens): its zones must not swallow touches any more.
+void OsWebTouchClearZones() {
+    pthread_mutex_lock(&s_queueLock);
+    memset(s_touchZones, 0, sizeof(s_touchZones));
+    s_touchStick = {};
+    s_touchEventsHead = s_touchEventsTail;
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+struct TouchTuning {
+    double holdMs;
+    double cameraSpeed;
+};
+
+static void ApplyTouchTuning(void* arg) {
+    TouchTuning* tuning = static_cast<TouchTuning*>(arg);
+    s_touchHoldMs = tuning->holdMs;
+    s_touchCameraSpeed = tuning->cameraSpeed;
+    delete tuning;
+}
+
+// From the game thread; the values are read by the touch handlers on the main thread, so they are handed over there.
+void OsWebTouchSetTuning(double holdMs, double cameraSpeed) {
+    emscripten_proxy_async(emscripten_proxy_get_system_queue(), emscripten_main_runtime_thread_id(), ApplyTouchTuning,
+        new TouchTuning{ holdMs, cameraSpeed });
+}
+
+void OsWebTouchGetStick(bool* active, float* x, float* y, float* originX, float* originY) {
+    pthread_mutex_lock(&s_queueLock);
+    *active = s_touchStick.active;
+    *x = s_touchStick.x;
+    *y = s_touchStick.y;
+    *originX = s_touchStick.originX;
+    *originY = s_touchStick.originY;
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+int32_t OsWebTouchNextEvent(int32_t* id, int32_t* down, int32_t* outside) {
+    pthread_mutex_lock(&s_queueLock);
+
+    int32_t result = s_touchEventsHead != s_touchEventsTail;
+    if (result) {
+        int32_t event = s_touchEvents[s_touchEventsHead];
+        s_touchEventsHead = (s_touchEventsHead + 1) % kTouchEventsSize;
+        *id = event < 0 ? -event : event;
+        *down = event > 0;
+        *outside = *id >= kTouchOutside;
+        *id = *outside ? *id - kTouchOutside : *id;
+    }
+
+    pthread_mutex_unlock(&s_queueLock);
+
+    return result;
+}
+
+void OsWebTouchGetZoneDrag(int32_t id, float* dx, float* dy, float* ms) {
+    pthread_mutex_lock(&s_queueLock);
+    bool valid = id >= 0 && id < kMaxTouchZones;
+    const ZoneDrag& drag = s_zoneDrag[valid ? id : 0];
+    *dx = valid ? drag.dx : 0.0f;
+    *dy = valid ? drag.dy : 0.0f;
+    *ms = valid && drag.start ? static_cast<float>((drag.end ? drag.end : emscripten_get_now()) - drag.start) : 0.0f;
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+static void CanvasPoint(float x, float y, int32_t* px, int32_t* py) {
+    pthread_mutex_lock(&s_queueLock);
+    *px = static_cast<int32_t>(std::lround(x * s_defaultWindowRect.right));
+    *py = static_cast<int32_t>(std::lround((1.0f - y) * s_defaultWindowRect.bottom));
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+// Moves the game's cursor to a point given in fractions of the canvas (y up), through the queue like any mouse move:
+// thumb aiming steers a ground spell's targeting circle with it. Called on the game thread.
+void OsWebTouchMoveCursor(float x, float y) {
+    int32_t px, py;
+    CanvasPoint(x, y, &px, &py);
+    OsQueuePut(OS_INPUT_MOUSE_MOVE, 0, px, py, 0);
+}
+
+// A left click there, as a tap would make: it puts an aimed ground spell down.
+void OsWebTouchClickAt(float x, float y) {
+    int32_t px, py;
+    CanvasPoint(x, y, &px, &py);
+    OsQueuePut(OS_INPUT_MOUSE_MOVE, 0, px, py, 0);
+    OsQueuePut(OS_INPUT_MOUSE_DOWN, MOUSE_BUTTON_LEFT, px, py, 0);
+    OsQueuePut(OS_INPUT_MOUSE_UP, MOUSE_BUTTON_LEFT, px, py, 0);
+}
+
+static void PutTouchEvent(int32_t zone, bool down, bool outside = false) {
+    pthread_mutex_lock(&s_queueLock);
+
+    int32_t next = (s_touchEventsTail + 1) % kTouchEventsSize;
+    if (next != s_touchEventsHead) {
+        int32_t code = outside ? zone + kTouchOutside : zone;
+        s_touchEvents[s_touchEventsTail] = down ? code : -code;
+        s_touchEventsTail = next;
+    }
+
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+// The zone under a point (fractions, y up); button zones win over the stick's.
+static int32_t TouchZoneAt(float x, float y, int32_t* zone) {
+    pthread_mutex_lock(&s_queueLock);
+
+    int32_t kind = TOUCH_ZONE_NONE;
+    for (int32_t want : { TOUCH_ZONE_BUTTON, TOUCH_ZONE_STICK }) {
+        for (int32_t id = 1; id < kMaxTouchZones && kind == TOUCH_ZONE_NONE; id++) {
+            const TouchZone& z = s_touchZones[id];
+            bool match = z.kind == want || (want == TOUCH_ZONE_BUTTON && z.kind == TOUCH_ZONE_TYPE);
+            if (match && x >= z.left && x < z.right && y >= z.bottom && y < z.top) {
+                kind = want;
+                *zone = id;
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&s_queueLock);
+
+    return kind;
+}
+
+static Finger* FindFinger(int32_t id) {
+    for (Finger& finger : s_fingers) {
+        if (finger.role != TOUCH_NONE && finger.id == id) {
+            return &finger;
+        }
+    }
+
+    return nullptr;
+}
+
+static Finger* FindRole(TouchRole role, const Finger* other = nullptr) {
+    for (Finger& finger : s_fingers) {
+        if (finger.role == role && &finger != other) {
+            return &finger;
+        }
+    }
+
+    return nullptr;
+}
+
+// Moves the cursor to a point in the canvas (CSS px), as the absolute move a mouse makes before it clicks.
+static void TouchMoveCursor(double x, double y) {
+    double ratio = OsWebPixelRatio();
+
+    pthread_mutex_lock(&s_queueLock);
+    s_pendingMove = true;
+    s_pendingX = s_mouseX = static_cast<int32_t>(std::lround(x * ratio));
+    s_pendingY = s_mouseY = static_cast<int32_t>(std::lround(y * ratio));
+    pthread_mutex_unlock(&s_queueLock);
+}
+
+static void TouchStart(int32_t id, double x, double y, double width, double height) {
+    Finger* finger = FindRole(TOUCH_NONE);
+    if (!finger) {
+        return;
+    }
+
+    *finger = { id, TOUCH_IGNORED, 0, x, y, x, y, emscripten_get_now(), false };
+    s_touchInput = true;
+
+    float fx = static_cast<float>(x / width);
+    float fy = static_cast<float>(1.0 - y / height);
+    int32_t zone = 0;
+    int32_t kind = TouchZoneAt(fx, fy, &zone);
+    Finger* cursor = FindRole(TOUCH_CURSOR, finger);
+
+    if (kind == TOUCH_ZONE_BUTTON) {
+        finger->role = TOUCH_BUTTON;
+        finger->zone = zone;
+        pthread_mutex_lock(&s_queueLock);
+        s_zoneDrag[zone] = { 0.0f, 0.0f, finger->startTime, 0.0 };
+        pthread_mutex_unlock(&s_queueLock);
+        PutTouchEvent(zone, true);
+    } else if (kind == TOUCH_ZONE_STICK && !FindRole(TOUCH_STICK, finger)) {
+        // The stick centres itself where the thumb lands.
+        finger->role = TOUCH_STICK;
+        pthread_mutex_lock(&s_queueLock);
+        s_touchStick = { true, 0.0f, 0.0f, fx, fy };
+        pthread_mutex_unlock(&s_queueLock);
+    } else if (kind == TOUCH_ZONE_STICK) {
+        finger->role = TOUCH_IGNORED;
+    } else if (!cursor && !FindRole(TOUCH_PINCH, finger)) {
+        finger->role = TOUCH_CURSOR;
+        if (s_osMouseMode != OS_MOUSE_MODE_RELATIVE) {
+            TouchMoveCursor(x, y);
+        }
+    } else if (cursor) {
+        // A second free finger: the two pinch, which ends whatever the first was doing.
+        if (cursor->dragging) {
+            OsQueuePut(OS_INPUT_MOUSE_UP, kTouchDragButton, s_mouseX, s_mouseY, 0);
+        }
+
+        cursor->role = TOUCH_PINCH;
+        finger->role = TOUCH_PINCH;
+        s_pinchDistance = std::hypot(x - cursor->x, y - cursor->y);
+        s_pinchWheel = 0.0;
+        s_pinchStart = cursor->startTime;
+        s_pinchTravel = std::hypot(cursor->x - cursor->startX, cursor->y - cursor->startY);
+    }
+}
+
+static void TouchMove(Finger* finger, double x, double y, double width, double height) {
+    double dx = x - finger->x;
+    double dy = y - finger->y;
+    finger->x = x;
+    finger->y = y;
+
+    switch (finger->role) {
+        case TOUCH_BUTTON:
+            pthread_mutex_lock(&s_queueLock);
+            s_zoneDrag[finger->zone].dx = static_cast<float>(x - finger->startX);
+            s_zoneDrag[finger->zone].dy = static_cast<float>(finger->startY - y);
+            pthread_mutex_unlock(&s_queueLock);
+            break;
+
+        case TOUCH_STICK: {
+            pthread_mutex_lock(&s_queueLock);
+            double sx = (x - s_touchStick.originX * width) / kStickRadius;
+            double sy = ((1.0 - s_touchStick.originY) * height - y) / kStickRadius;
+            double length = std::hypot(sx, sy);
+            if (length > 1.0) {
+                sx /= length;
+                sy /= length;
+            }
+            s_touchStick.x = static_cast<float>(sx);
+            s_touchStick.y = static_cast<float>(sy);
+            pthread_mutex_unlock(&s_queueLock);
+            break;
+        }
+
+        case TOUCH_CURSOR:
+            if (!finger->dragging && std::hypot(x - finger->startX, y - finger->startY) > kTouchSlop) {
+                finger->dragging = true;
+                OsQueuePut(OS_INPUT_MOUSE_DOWN, kTouchDragButton, s_mouseX, s_mouseY, 0);
+            }
+
+            if (finger->dragging) {
+                // A right drag on the world puts the game in relative mode (mouselook), which wants deltas.
+                if (s_osMouseMode == OS_MOUSE_MODE_RELATIVE) {
+                    double ratio = OsWebPixelRatio();
+                    pthread_mutex_lock(&s_queueLock);
+                    s_pendingRelative = true;
+                    s_pendingDX += static_cast<int32_t>(std::lround(dx * ratio * s_touchCameraSpeed));
+                    s_pendingDY += static_cast<int32_t>(std::lround(dy * ratio * s_touchCameraSpeed));
+                    pthread_mutex_unlock(&s_queueLock);
+                } else {
+                    TouchMoveCursor(x, y);
+                }
+            }
+
+            break;
+
+        case TOUCH_PINCH: {
+            Finger* other = FindRole(TOUCH_PINCH, finger);
+            if (!other) {
+                break;
+            }
+
+            double distance = std::hypot(x - other->x, y - other->y);
+            s_pinchTravel += std::hypot(dx, dy);
+            s_pinchWheel += distance - s_pinchDistance;
+            s_pinchDistance = distance;
+
+            // Spreading the fingers zooms in.
+            while (s_pinchWheel >= kPinchStep || s_pinchWheel <= -kPinchStep) {
+                bool in = s_pinchWheel > 0.0;
+                s_pinchWheel -= in ? kPinchStep : -kPinchStep;
+                PutTouchEvent(in ? kTouchZoomIn : kTouchZoomOut, true);
+            }
+
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+static void TouchEnd(Finger* finger, bool cancel, double width, double height) {
+    switch (finger->role) {
+        case TOUCH_STICK:
+            pthread_mutex_lock(&s_queueLock);
+            s_touchStick = {};
+            pthread_mutex_unlock(&s_queueLock);
+            break;
+
+        case TOUCH_BUTTON: {
+            // Lifted off the button: WebTouch.lua does not cast (a slipped thumb, or a drag away to cancel).
+            pthread_mutex_lock(&s_queueLock);
+            const TouchZone& z = s_touchZones[finger->zone];
+            float fx = static_cast<float>(finger->x / width);
+            float fy = static_cast<float>(1.0 - finger->y / height);
+            bool outside = cancel || fx < z.left || fx >= z.right || fy < z.bottom || fy >= z.top;
+            bool type = z.kind == TOUCH_ZONE_TYPE;
+            s_zoneDrag[finger->zone].end = emscripten_get_now();
+            pthread_mutex_unlock(&s_queueLock);
+            if (type && !outside) {
+                EM_ASM({
+                    var field = document.getElementById('wow-text');
+                    if (field) field.focus({ preventScroll: true });
+                });
+            }
+            PutTouchEvent(finger->zone, false, outside);
+            break;
+        }
+
+        case TOUCH_CURSOR:
+            if (finger->dragging) {
+                OsQueuePut(OS_INPUT_MOUSE_UP, kTouchDragButton, s_mouseX, s_mouseY, 0);
+            } else if (!cancel) {
+                MOUSEBUTTON button = emscripten_get_now() - finger->startTime >= s_touchHoldMs ? MOUSE_BUTTON_RIGHT : MOUSE_BUTTON_LEFT;
+                OsQueuePut(OS_INPUT_MOUSE_DOWN, button, s_mouseX, s_mouseY, 0);
+                OsQueuePut(OS_INPUT_MOUSE_UP, button, s_mouseX, s_mouseY, 0);
+            }
+
+            // Off the frame it was over, to the top edge, so its tooltip and highlight go away with the finger.
+            if (s_osMouseMode != OS_MOUSE_MODE_RELATIVE) {
+                TouchMoveCursor(width / 2.0, 0.0);
+            }
+
+            break;
+
+        case TOUCH_PINCH:
+            // The finger left behind waits to be lifted.
+            if (Finger* other = FindRole(TOUCH_PINCH, finger)) {
+                other->role = TOUCH_IGNORED;
+            }
+
+            // A quick two-finger tap is Escape, which phones have no key for: it closes menus and cancels casts.
+            if (!cancel && emscripten_get_now() - s_pinchStart < kTwoFingerTapMs && s_pinchTravel < kTouchSlop * 2.0) {
+                OsQueuePut(OS_INPUT_KEY_DOWN, KEY_ESCAPE, 1, 0, 0);
+                OsQueuePut(OS_INPUT_KEY_UP, KEY_ESCAPE, 1, 0, 0);
+            }
+
+            break;
+
+        default:
+            break;
+    }
+
+    finger->role = TOUCH_NONE;
+}
+
+static bool OnTouch(int eventType, const EmscriptenTouchEvent* event, void* userData) {
+    if (eventType == EMSCRIPTEN_EVENT_TOUCHSTART) {
+        // Key events (a Bluetooth keyboard) only go to the focused element.
+        MAIN_THREAD_ASYNC_EM_ASM({ document.getElementById('canvas').focus(); });
+    }
+
+    double width = 0.0;
+    double height = 0.0;
+    emscripten_get_element_css_size("#canvas", &width, &height);
+    if (width <= 0.0 || height <= 0.0) {
+        return true;
+    }
+
+    double originX = WebCanvasOrigin(0);
+    double originY = WebCanvasOrigin(1);
+
+    for (int32_t i = 0; i < event->numTouches; i++) {
+        const EmscriptenTouchPoint& touch = event->touches[i];
+        if (!touch.isChanged) {
+            continue;
+        }
+
+        double x = touch.clientX - originX;
+        double y = touch.clientY - originY;
+
+        if (eventType == EMSCRIPTEN_EVENT_TOUCHSTART) {
+            TouchStart(touch.identifier, x, y, width, height);
+        } else if (Finger* finger = FindFinger(touch.identifier)) {
+            if (eventType == EMSCRIPTEN_EVENT_TOUCHMOVE) {
+                TouchMove(finger, x, y, width, height);
+            } else {
+                TouchEnd(finger, eventType == EMSCRIPTEN_EVENT_TOUCHCANCEL, width, height);
+            }
+        }
+    }
+
+    // Consumed: no scrolling, no zoom, and no mouse events made up from the touch.
+    return true;
+}
+
 #define WEB_REGISTER(call) \
     do { \
         if ((call) != EMSCRIPTEN_RESULT_SUCCESS) { \
@@ -611,6 +1134,10 @@ static void RegisterDomHandlers() {
     WEB_REGISTER(emscripten_set_focus_callback_on_thread("#canvas", nullptr, true, OnFocus, mainThread));
     WEB_REGISTER(emscripten_set_blur_callback_on_thread("#canvas", nullptr, true, OnFocus, mainThread));
     WEB_REGISTER(emscripten_set_resize_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, nullptr, true, OnResize, mainThread));
+    WEB_REGISTER(emscripten_set_touchstart_callback_on_thread("#canvas", nullptr, true, OnTouch, mainThread));
+    WEB_REGISTER(emscripten_set_touchmove_callback_on_thread("#canvas", nullptr, true, OnTouch, mainThread));
+    WEB_REGISTER(emscripten_set_touchend_callback_on_thread("#canvas", nullptr, true, OnTouch, mainThread));
+    WEB_REGISTER(emscripten_set_touchcancel_callback_on_thread("#canvas", nullptr, true, OnTouch, mainThread));
 
     // Key events only go to the focused element.
     MAIN_THREAD_ASYNC_EM_ASM({ document.getElementById('canvas').focus(); });
@@ -717,7 +1244,11 @@ intptr_t OsWindowProc(void* window, uint32_t message, uintptr_t wparam, intptr_t
     return 0;
 }
 
+// Password boxes: the phone keyboard's text field turns into a password field (OsIME.cpp).
+void OsWebTextSecure(int32_t secure);
+
 void OsInputEnableSecureMode(int32_t enable) {
+    OsWebTextSecure(enable);
 }
 
 #endif

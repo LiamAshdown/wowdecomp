@@ -39,11 +39,12 @@ target_include_directories(Wow
 )
 
 if (WOWDECOMP_PLATFORM_WEB)
-    # The game runs on a pthread so its blocking loop, waits and synchronous file reads stay valid.
+    # The game runs on a pthread so its blocking loop, waits and synchronous file reads stay valid. Memory starts small
+    # and grows, because phones refuse a large first allocation; pre.js lowers the maximum when the page asks.
     target_link_options(Wow PRIVATE
         -sPROXY_TO_PTHREAD
         -sALLOW_MEMORY_GROWTH
-        -sINITIAL_MEMORY=1GB
+        -sINITIAL_MEMORY=384MB
         -sMAXIMUM_MEMORY=4GB
         -sSTACK_SIZE=8MB
         -sPTHREAD_POOL_SIZE=24

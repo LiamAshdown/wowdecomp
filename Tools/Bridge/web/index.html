@@ -2,13 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The phone keyboard overlays the canvas rather than resizing it, which would lay the UI out again (OsIME.cpp). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=overlays-content">
 <title>Lasthavens</title>
 <meta name="description" content="Lasthavens is a Wrath of the Lich King (3.3.5) realm you play right in your browser. No download, no launcher: create an account on the login screen and play.">
 <link rel="canonical" href="https://lasthavens.com/">
 <!-- make-logo.py writes the realm's icon as favicon.svg on the server, which the bridge serves before this directory's. -->
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#d9a826">
+<!-- Added to the home screen, it opens full screen, with none of Safari's bars (docs/mobile-plan.md). -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lasthavens">
+<!-- Installing it (Android, desktop Chrome): full screen, landscape. The icons are made on the server by make-logo.py. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <!-- Link previews (Discord, social sites). og-image.jpg is made on the server by make-logo.py. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Lasthavens">
@@ -25,10 +34,18 @@
 <meta name="twitter:image" content="https://lasthavens.com/og-image.jpg">
 <style>
     html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 12px/1.4 monospace; overflow: hidden; }
-    #canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+    /* dvh: on iOS 100vh runs on under Safari's toolbars, which then hide the bottom of the game. */
+    #canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; outline: none; }
+    /* Touches go to the game (Input.cpp), not to scrolling, zooming or the long-press callout. */
+    #canvas { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    /* The touch HUD (WebTouch.cpp) reads the safe-area insets (the notch) from this element's padding. */
+    #safe { position: fixed; inset: 0; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top)
+            env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
     #log { position: fixed; left: 0; right: 0; bottom: 0; max-height: 35vh; overflow: auto; margin: 0; padding: 6px 8px;
            background: rgba(0, 0, 0, .75); white-space: pre-wrap; pointer-events: none; z-index: 2; }
     #log.hidden { display: none; }
+    #stats { position: fixed; left: 4px; top: 4px; z-index: 3; padding: 2px 6px; background: rgba(0, 0, 0, .6);
+             color: #0f0; pointer-events: none; }
 
     /* The client's own loading screen (LoadingScreen.cpp): a painting letterboxed to 4:3 or 16:10, the bar border
        0.6 x 0.05 of it centred 0.075 up from the bottom, the fill 0.525 x 0.025 growing from the left. The textures
@@ -61,6 +78,18 @@
     #activity span::after { content: ""; animation: dots 1.2s steps(4) infinite; }
     @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 
+    /* The phone keyboard's text field (OsIME.cpp), shown just above the keyboard like the chat edit box: a dark
+       translucent backdrop with a thin gold border. Hidden, it stays in the viewport so focusing it never scrolls.
+       16px, or iOS zooms in on focus. The bar asks for the tap iOS needs before it opens the keyboard. */
+    #wow-text, #wow-typebar { position: fixed; left: 50%; z-index: 2; transform: translateX(-50%); box-sizing: border-box;
+                              background: rgba(0, 0, 0, .75); border: 1px solid rgba(255, 210, 0, .55); border-radius: 3px;
+                              font: 16px Georgia, serif; text-shadow: 1px 1px 0 #000; }
+    #wow-text { top: 0; width: min(600px, calc(100vw - 32px)); padding: 6px 10px; color: #fff; caret-color: #ffd200;
+                outline: none; opacity: 0; pointer-events: none; }
+    #wow-text.on { opacity: 1; pointer-events: auto; }
+    #wow-typebar { top: 15%; padding: 6px 18px; color: #ffd200; display: none; }
+    #wow-typebar.on { display: block; }
+
     /* Without extracted art (a local bridge): the same bar, drawn plainly. */
     #loading.plain #border { border: 1px solid #555; box-sizing: border-box; background: none; }
     #loading.plain #fill { background: #2d6f8f; }
@@ -73,6 +102,8 @@
 </div>
 <div id="activity">Downloading game data<span></span></div>
 <pre id="log" class="hidden"></pre>
+<div id="stats" hidden></div>
+<div id="safe"></div>
 <script>
     const log = document.getElementById("log");
     const append = (text) => {
@@ -210,6 +241,59 @@
 
     if (!crossOriginIsolated) {
         fail("This page has to be served by the Lasthavens bridge.", "isolation");
+    }
+
+    // Phones (docs/mobile-plan.md, T0) get a lower memory ceiling (pre.js), a smaller game-data block cache (WebVfs.cpp)
+    // and a drawing buffer of at most 1.5 pixels per CSS pixel (OsWebPixelRatio). For testing on a phone, ?mem=<MB>,
+    // ?cache=<MB> and ?scale=<factor of devicePixelRatio> override them, and ?stats shows the frame rate and the heap,
+    // which never shrinks, so it is also the peak.
+    const params = new URLSearchParams(location.search);
+    const mobile = matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints > 0;
+    window.wowMemoryMB = Number(params.get("mem")) || (mobile ? 2048 : 0);
+    window.wowCacheBlocks = Number(params.get("cache")) || (mobile ? 64 : 256);
+    window.wowRenderScale = Number(params.get("scale")) || (mobile ? Math.min(1, 1.5 / devicePixelRatio) : 1);
+    // The webTouch CVar's default (WebTouch.cpp): the touch HUD on a touch screen; ?touch=1 or 0 overrides it.
+    window.wowTouch = params.has("touch") ? params.get("touch") === "1" : mobile;
+    // Android's back button is Escape (OsIME.cpp), so it closes menus and cancels casts instead of leaving the page.
+    if (mobile) {
+        history.pushState(null, "", location.href);
+        addEventListener("popstate", () => {
+            if (window.wowKey) window.wowKey(27);
+            history.pushState(null, "", location.href);
+        });
+    }
+    // Android: a tap goes full screen and turns the game to landscape, the first one after loading and again after coming
+    // back from another app (Chrome leaves full screen then). Both need a tap. Opened from the home screen it already is
+    // (manifest.webmanifest); iOS gives pages neither, its home-screen app is full screen by itself.
+    let fullscreenOnTap = mobile && !!document.documentElement.requestFullscreen;
+    addEventListener("pointerup", () => {
+        if (!fullscreenOnTap) return;
+        fullscreenOnTap = false;
+        if (document.fullscreenElement || matchMedia("(display-mode: fullscreen)").matches) return;
+        document.documentElement.requestFullscreen({ navigationUI: "hide" })
+            .then(() => window.screen.orientation?.lock?.("landscape")).catch(() => {});
+    }, true);
+    // Back from another app: iOS suspends a hidden page, and the world connection may have died meanwhile. The client
+    // reconnects if it has to (WebResume.cpp).
+    const visibility = () => {
+        const visible = document.visibilityState === "visible";
+        window.wowVisible?.(visible);
+        if (visible && mobile && document.documentElement.requestFullscreen) fullscreenOnTap = true;
+    };
+    document.addEventListener("visibilitychange", visibility);
+    addEventListener("pageshow", visibility);
+    if (params.has("stats")) {
+        const stats = document.getElementById("stats");
+        stats.hidden = false;
+        let frames = 0;
+        setInterval(() => {
+            const count = window.wowFrameCount ? window.wowFrameCount() : 0;
+            const heap = window.wasmMemory ? Math.round(wasmMemory.buffer.byteLength / 1048576) : 0;
+            // The canvas belongs to the game thread (OffscreenCanvas), so its buffer size is worked out as OsWebPixelRatio does.
+            const rect = document.getElementById("canvas").getBoundingClientRect(), ratio = devicePixelRatio * wowRenderScale;
+            stats.textContent = `${count - frames} fps · heap ${heap} MB · ${Math.round(rect.width * ratio)}x${Math.round(rect.height * ratio)}` + (mobile ? " · mobile" : "");
+            frames = count;
+        }, 1000);
     }
 
     var Module = {
