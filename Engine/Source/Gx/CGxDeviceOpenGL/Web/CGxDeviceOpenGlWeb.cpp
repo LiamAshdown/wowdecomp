@@ -48,6 +48,12 @@ static void SyncResolutionCVars(int32_t width, int32_t height) {
 
     CVar* resolution = CVar::Lookup("gxResolution");
 
+    if (resolution) {
+        // gxResolution is latched: a saved resolution waits there and CVar::Update (UpdateGxCVars) would apply it over
+        // the canvas size, laying the UI out for the wrong shape.
+        resolution->m_latchedValue.Copy(nullptr);
+    }
+
     if (resolution && (!resolution->m_stringValue.m_str || strcmp(resolution->m_stringValue.m_str, value))) {
         // InternalSet skips the callback, which only accepts monitor modes and would queue a gxRestart.
         resolution->InternalSet(value, true, false, false, false);
