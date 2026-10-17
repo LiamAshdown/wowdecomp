@@ -523,6 +523,15 @@ void AsyncFileReadInitialize(uint32_t threadSleep, uint32_t handlerTimeout) {
         AsyncFileReadCreateThread(s_asyncQueues[i], s_asyncQueueNames[i]);
     }
 
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // In the browser a read that misses WebVfs's block cache is a synchronous download of a 1 MB block (~0.15 s), so a
+    // new zone's few thousand small files took one download after another. More readers on the disk queue download
+    // several at once. Objects are taken and finished under g_queueLock, and each open file has its own IOLockUnit.
+    for (int32_t i = 1; i < 6; i++) {
+        AsyncFileReadCreateThread(s_asyncQueues[0], s_asyncQueueNames[0]);
+    }
+#endif
+
     if (SFile::IsStreamingMode()) {
         s_asyncQueues[2]->m_frameLimited = 1;
     }

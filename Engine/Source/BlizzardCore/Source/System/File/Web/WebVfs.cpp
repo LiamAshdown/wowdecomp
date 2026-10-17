@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -165,6 +166,9 @@ std::mutex s_cacheLock;
 std::atomic<int32_t> s_fetchCount;
 std::list<Block> s_lru;
 std::unordered_map<uint64_t, std::list<Block>::iterator> s_blocks;
+// Blocks some thread is downloading right now; s_fetched wakes the threads waiting for one.
+std::unordered_set<uint64_t> s_fetching;
+std::condition_variable s_fetched;
 
 void AddDir(Manifest& m, const std::string& dir) {
     if (m.m_dirs.count(dir)) {
@@ -353,47 +357,53 @@ bool IsRemoteDir(const char* path) {
 
 BlockData GetBlock(int file, int64_t index) {
     uint64_t key = (static_cast<uint64_t>(file) << 40) | static_cast<uint64_t>(index);
+    const RemoteFile& remote = s_manifest->m_files[file];
+    int64_t offset = index * kBlockSize;
+    int32_t count = static_cast<int32_t>(std::min(kBlockSize, remote.m_size - offset));
+
+    if (count <= 0) {
+        return nullptr;
+    }
 
     {
-        std::lock_guard<std::mutex> guard(s_cacheLock);
+        std::unique_lock<std::mutex> guard(s_cacheLock);
+        // Several threads read at once (the disk queue has more than one reader on web), so a block another thread is
+        // downloading is waited for rather than downloaded twice.
+        s_fetched.wait(guard, [key] { return !s_fetching.count(key); });
         auto it = s_blocks.find(key);
 
         if (it != s_blocks.end()) {
             s_lru.splice(s_lru.begin(), s_lru, it->second);
             return it->second->m_data;
         }
+
+        s_fetching.insert(key);
     }
 
-    // Fetched outside the lock; two threads missing the same block both fetch it, which is harmless.
-    const RemoteFile& remote = s_manifest->m_files[file];
-    int64_t offset = index * kBlockSize;
-    int32_t count = static_cast<int32_t>(std::min(kBlockSize, remote.m_size - offset));
-    auto data = std::make_shared<std::vector<uint8_t>>(count > 0 ? count : 0);
+    auto data = std::make_shared<std::vector<uint8_t>>(count);
 
     // Data/ only ever holds the shipped game files; everything else may be a player's own (user-data overlay) file.
     bool immutable = remote.m_path.size() > 5 && !strncasecmp(remote.m_path.c_str(), "Data/", 5);
 
-    if (count <= 0) {
-        return nullptr;
-    }
-
     s_fetchCount.fetch_add(1, std::memory_order_relaxed);
 
-    if ((!immutable || WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) != count)
-        && WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) != count) {
+    bool fetched = (immutable && WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) == count)
+        || WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) == count;
+
+    std::lock_guard<std::mutex> guard(s_cacheLock);
+    s_fetching.erase(key);
+    s_fetched.notify_all();
+
+    if (!fetched) {
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> guard(s_cacheLock);
+    s_lru.push_front({ key, data });
+    s_blocks[key] = s_lru.begin();
 
-    if (!s_blocks.count(key)) {
-        s_lru.push_front({ key, data });
-        s_blocks[key] = s_lru.begin();
-
-        if (s_lru.size() > kMaxBlocks) {
-            s_blocks.erase(s_lru.back().m_key);
-            s_lru.pop_back();
-        }
+    if (s_lru.size() > kMaxBlocks) {
+        s_blocks.erase(s_lru.back().m_key);
+        s_lru.pop_back();
     }
 
     return data;
