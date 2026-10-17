@@ -619,12 +619,16 @@ SERVER_ALERT_URL = "/server-alert.txt"
 -- font) in the game's gold, outlined, over a line of Friz Quadrata.
 AccountLoginLogo:Hide()
 local title = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
-title:SetFont("Fonts\\MORPHEUS.TTF", 72, "OUTLINE")
+-- Glyphs are rasterised at 32 px at most (CGxFont::UpdateDimensions); SetTextHeight scales the text past that, as
+-- the client's own large titles do.
+title:SetFont("Fonts\\MORPHEUS.TTF", 32, "OUTLINE")
+title:SetTextHeight(64)
 title:SetTextColor(1, 0.82, 0)
 title:SetShadowColor(0, 0, 0, 1)
 title:SetShadowOffset(3, -3)
--- Left-anchored in the logo's place: centred, the wider text would run off the left edge on narrow windows.
-title:SetPoint("LEFT", AccountLoginLogo, "LEFT", 14, 10)
+-- Centred over the news panel, which always sits on the login scene (a wide window pillarboxes the scene, and the
+-- logo's own corner can land in the black bar).
+title:SetPoint("BOTTOM", ServerAlertFrame, "TOP", 0, 26)
 title:SetText("Lasthavens")
 local subtitle = AccountLoginLogo:GetParent():CreateFontString(nil, "OVERLAY")
 subtitle:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
