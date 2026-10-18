@@ -59,12 +59,12 @@ EM_JS(int, WebVfsFetchRange, (const char* path, double offset, int count, void* 
     return length;
 });
 
-// One 1 MB block of an immutable game file, from its own URL (/blocks/<path>/<size>-<index>.bin) that the bridge
+// One block of an immutable game file, from its own URL (/blocks/<path>/<size>-<index>-<block KB>k.bin) that the bridge
 // marks cacheable for a year, so the browser's disk cache and the CDN keep it across visits. Returns the byte count,
 // or -1 (the caller then falls back to a Range request).
-EM_JS(int, WebVfsFetchBlock, (const char* path, double size, double index, int count, void* dst), {
+EM_JS(int, WebVfsFetchBlock, (const char* path, double size, double index, int blockKB, int count, void* dst), {
     var xhr = new XMLHttpRequest();
-    xhr.open("GET", "/blocks/" + UTF8ToString(path).split("/").map(encodeURIComponent).join("/") + "/" + size + "-" + index + ".bin", false);
+    xhr.open("GET", "/blocks/" + UTF8ToString(path).split("/").map(encodeURIComponent).join("/") + "/" + size + "-" + index + "-" + blockKB + "k.bin", false);
     xhr.responseType = "arraybuffer";
     try {
         xhr.send();
@@ -114,11 +114,11 @@ EM_JS(int, WebVfsDelete, (const char* path), {
 namespace {
 
 const int kRemoteFdBase = 0x40000000;
-const int64_t kBlockSize = 1 << 20;
-// The block cache in MB, from the page (index.html: 256, or 64 on phones), read once.
+const int64_t kBlockSize = 64 << 10;
+// The block cache, from its size in MB on the page (index.html: 256, or 64 on phones), read once.
 size_t MaxBlocks() {
-    static const size_t blocks = static_cast<size_t>(MAIN_THREAD_EM_ASM_INT({ return Math.max(16, window.wowCacheBlocks || 256); }));
-    return blocks;
+    static const size_t megabytes = static_cast<size_t>(MAIN_THREAD_EM_ASM_INT({ return Math.max(16, window.wowCacheBlocks || 256); }));
+    return megabytes * ((1 << 20) / kBlockSize);
 }
 
 struct RemoteFile {
@@ -165,7 +165,7 @@ std::unordered_set<std::string> s_deleted;
 const int64_t kMaxPersistBytes = 64 << 20;
 
 std::mutex s_cacheLock;
-// Blocks fetched over the network so far (FetchCounter).
+// Kilobytes fetched over the network so far (FetchCounter).
 std::atomic<int32_t> s_fetchCount;
 std::list<Block> s_lru;
 std::unordered_map<uint64_t, std::list<Block>::iterator> s_blocks;
@@ -389,9 +389,9 @@ BlockData GetBlock(int file, int64_t index) {
     // player's own (user-data overlay) file.
     bool immutable = !strncasecmp(remote.m_path.c_str(), "Data/", 5) || !strncasecmp(remote.m_path.c_str(), "Interface/AddOns/", 17);
 
-    s_fetchCount.fetch_add(1, std::memory_order_relaxed);
+    s_fetchCount.fetch_add((count + 1023) >> 10, std::memory_order_relaxed);
 
-    bool fetched = (immutable && WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), count, data->data()) == count)
+    bool fetched = (immutable && WebVfsFetchBlock(remote.m_path.c_str(), static_cast<double>(remote.m_size), static_cast<double>(index), static_cast<int>(kBlockSize >> 10), count, data->data()) == count)
         || WebVfsFetchRange(remote.m_path.c_str(), static_cast<double>(offset), count, data->data()) == count;
 
     // Before the lock: the first call waits on the main thread.

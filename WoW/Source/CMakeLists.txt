@@ -56,6 +56,9 @@ if (WOWDECOMP_PLATFORM_WEB)
         -sMAX_WEBGL_VERSION=2
         "--pre-js=${CMAKE_SOURCE_DIR}/Engine/Source/Os/Web/pre.js"
         -Wl,--error-limit=0
+        # Function names for stack traces, but no DWARF: it was 56 MB of a 66 MB Wow.wasm that every player downloads.
+        # -g0 first, because emcc only turns DWARF back off on -g0 (RelWithDebInfo's -g comes before these).
+        -g0 -g2
     )
 else ()
     target_link_options(Wow PRIVATE "/INCREMENTAL:NO" "/ENTRY:start")

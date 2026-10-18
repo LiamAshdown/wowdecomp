@@ -26,7 +26,7 @@ int stat(const char* path, struct stat* st);
 int access(const char* path, int mode);
 bool IsRemote(int fd);
 
-// The number of game-data blocks fetched over the network so far, as a plain int32 in shared memory the page can
+// The kilobytes of game data fetched over the network so far, as a plain int32 in shared memory the page can
 // read (an atomic underneath): the page keeps its loading screen up while it still moves.
 const int32_t* FetchCounter();
 

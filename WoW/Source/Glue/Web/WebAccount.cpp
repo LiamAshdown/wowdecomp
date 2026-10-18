@@ -715,7 +715,7 @@ void WebAccountInitialize() {
 
     FrameScript_Execute(kAccountUi, "WebAccount.lua", nullptr);
 
-    // The glue frames are loaded. The page (Tools/Bridge/web/index.html) reads the number of game-data blocks fetched so
+    // The glue frames are loaded. The page (Tools/Bridge/web/index.html) reads the kilobytes of game data fetched so
     // far to tell when the login scene has finished streaming in, and to show that a download is under way later on.
     MAIN_THREAD_ASYNC_EM_ASM({
         window.wowFetchCount = function() { return HEAP32[$0 >> 2]; };

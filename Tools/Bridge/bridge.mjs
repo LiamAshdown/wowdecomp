@@ -222,7 +222,6 @@ async function handleUserData(req, res, rel, o) {
     }
 }
 
-const BLOCK_BYTES = 1 << 20;   // WebVfs kBlockSize
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".svg": "image/svg+xml", ".txt": "text/plain", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json", ".webmanifest": "application/manifest+json" };
 const ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
@@ -294,19 +293,22 @@ const server = (tls ? (handler) => createHttpsServer(tls, handler) : createServe
 
     if (path.startsWith("/userdata/")) return handleUserData(req, res, path.slice("/userdata/".length), overlayFor(user));
 
-    // /blocks/<path>/<size>-<index>.bin: one 1 MB block of a shipped game file under Data/ or Interface/AddOns/, or of a
-    // library addon (never a user-data file), cacheable by the browser and the CDN (.bin is an extension Cloudflare
-    // caches). WebVfs fetches these and falls back to /game/ Range requests. Every library addon is served to anyone, as
-    // anyone may install it. ponytail: the URL only changes with the file's size; replacing a file with a same-sized one
-    // needs a cache purge, so library blocks (re-fetched with fetch-addons.mjs) are only kept for a day.
+    // /blocks/<path>/<size>-<index>-<block KB>k.bin: one block (WebVfs kBlockSize) of a shipped game file under Data/
+    // or Interface/AddOns/, or of a library addon (never a user-data file), cacheable by the browser and the CDN (.bin
+    // is an extension Cloudflare caches). WebVfs fetches these and falls back to /game/ Range requests. Every library
+    // addon is served to anyone, as anyone may install it. ponytail: the URL only changes with the file's size;
+    // replacing a file with a same-sized one needs a cache purge, so library blocks (re-fetched with fetch-addons.mjs)
+    // are only kept for a day. Without the suffix a block is 1 MB, for clients from before the block size was in the
+    // URL.
     if (path.startsWith("/blocks/")) {
-        const m = /^\/blocks\/((?:Data|Interface\/AddOns)\/.+)\/(\d+)-(\d+)\.bin$/i.exec(path);
+        const m = /^\/blocks\/((?:Data|Interface\/AddOns)\/.+)\/(\d+)-(\d+)(?:-(64|128|256|512)k)?\.bin$/i.exec(path);
+        const blockBytes = m?.[4] ? Number(m[4]) << 10 : 1 << 20;
         const addon = m && !baseFiles.has(m[1]) ? libraryFile(library, library.keys(), m[1]) : null;
         const file = addon ? join(addonsDir, addon.path) : m && join(gameDir, m[1]);
         const size = addon ? addon.size : m ? baseFiles.get(m[1]) : undefined;
-        const start = m ? Number(m[3]) * BLOCK_BYTES : 0;
+        const start = m ? Number(m[3]) * blockBytes : 0;
         if (size === undefined || size !== Number(m[2]) || start >= size) return res.writeHead(404, ISOLATION).end();
-        const end = Math.min(start + BLOCK_BYTES, size) - 1;
+        const end = Math.min(start + blockBytes, size) - 1;
         res.writeHead(200, { ...ISOLATION, "Content-Type": "application/octet-stream", "Content-Length": end - start + 1,
             "Cache-Control": addon ? "public, max-age=86400" : "public, max-age=31536000, immutable" });
         if (req.method === "HEAD") return res.end();
