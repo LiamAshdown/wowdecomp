@@ -73,6 +73,12 @@ static void PortraitDepthTextureCallback(EGxTexCommand command, uint32_t width, 
 // VERIFY: 9cb5c23b auto
 // OFFSET: 0x00616DC0
 int32_t RTAlphaSupported() {
+#if defined(WOWDECOMP_PLATFORM_WEB)
+    // WebGL2 framebuffer targets always have alpha, so portraits render straight into their texture. The test below
+    // reads the canvas, which has none, and the readback path it would pick instead left portraits black.
+    return 1;
+#endif
+
     if (g_theGxDevicePtr->DeviceApi() == GxApi_OpenGl && !g_theGxDevicePtr->Caps().m_oglRtAlpha) {
         return 0;
     }
