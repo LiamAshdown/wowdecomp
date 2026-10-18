@@ -90,6 +90,16 @@
     #wow-typebar { top: 15%; padding: 6px 18px; color: #ffd200; display: none; }
     #wow-typebar.on { display: block; }
 
+    /* A phone or tablet held upright: the game is laid out for landscape. Android locks it once full screen; iOS can't,
+       so this asks. The game keeps loading underneath. In the client's gold, with the tip's grey below. */
+    #rotate { display: none; }
+    @media (pointer: coarse) and (orientation: portrait) {
+        #rotate { position: fixed; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center;
+                  justify-content: center; gap: 8px; padding: 24px; background: #000; text-align: center;
+                  color: #ffd200; font: 20px/1.3 "Friz Quadrata", Georgia, serif; text-shadow: 1px 1px 0 #000; }
+        #rotate small { color: rgba(200, 200, 200, .84); font-size: 14px; }
+    }
+
     /* Without extracted art (a local bridge): the same bar, drawn plainly. */
     #loading.plain #border { border: 1px solid #555; box-sizing: border-box; background: none; }
     #loading.plain #fill { background: #2d6f8f; }
@@ -104,6 +114,7 @@
 <pre id="log" class="hidden"></pre>
 <div id="stats" hidden></div>
 <div id="safe"></div>
+<div id="rotate">Turn your device sideways<small>Lasthavens is played in landscape.</small></div>
 <script>
     const log = document.getElementById("log");
     const append = (text) => {
