@@ -217,9 +217,16 @@
         clearInterval(tipTimer);
         setProgress(1);
         setTimeout(() => loading.classList.add("done"), 200);
-        if (!capped) report("loaded", "", performance.now());
+        report(capped ? "load_slow" : "loaded", "", performance.now());
     };
     setTimeout(() => finishLoading(true), 180_000);
+    // Leaving before the login screen is up: how long they waited, and whether Wow.wasm was still downloading.
+    let left = false;
+    addEventListener("pagehide", () => {
+        if (loaded || failed || left) return;
+        left = true;
+        report("load_abandoned", creep ? "startup" : "download", performance.now());
+    });
     window.wowFramesLoaded = () => {
         let last = window.wowFetchCount(), changedAt = performance.now(), burstFrom = null;
         setInterval(() => {

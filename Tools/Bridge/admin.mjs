@@ -20,17 +20,20 @@ export const EVENTS = {
     new_browser: [""],
     loaded: [""],
     load_failed: ["isolation", "webgl2", "download", "other"],
+    load_slow: [""],
+    load_abandoned: ["download", "startup"],
     account_created: [""],
     login_connection: [""],
     world_connection: [""],
 };
 
-// The event a page report becomes, or null. ms is only kept for "loaded" (time from page open to the login screen).
+// The event a page report becomes, or null. ms is only kept for "loaded" (time from page open to the login screen) and
+// "load_abandoned" (time from page open to leaving it).
 export function pageEvent(body) {
     const event = typeof body?.event === "string" ? body.event : "";
     const detail = typeof body?.detail === "string" ? body.detail : "";
-    if (!["visit", "loaded", "load_failed"].includes(event) || !EVENTS[event].includes(detail)) return null;
-    const ms = event === "loaded" && Number.isFinite(body.ms) && body.ms > 0 && body.ms < 600_000 ? Math.round(body.ms) : 0;
+    if (!["visit", "loaded", "load_failed", "load_slow", "load_abandoned"].includes(event) || !EVENTS[event].includes(detail)) return null;
+    const ms = ["loaded", "load_abandoned"].includes(event) && Number.isFinite(body.ms) && body.ms > 0 && body.ms < 600_000 ? Math.round(body.ms) : 0;
     return { event, detail, ms };
 }
 
@@ -421,6 +424,15 @@ export function createAdmin({ databaseUrl, password, secret, webDirs = [], pool 
         const week = (event) => events.filter((e) => e.event === event).reduce((n, e) => n + Number(e.count), 0);
         const loaded = events.find((e) => e.event === "loaded");
         const avgLoad = loaded && Number(loaded.count) ? `${(Number(loaded.ms) / Number(loaded.count) / 1000).toFixed(1)} s` : "-";
+        const abandonedMs = events.filter((e) => e.event === "load_abandoned").reduce((n, e) => n + Number(e.ms), 0);
+        const abandonedCount = week("load_abandoned");
+        const avgWait = abandonedCount ? `${(abandonedMs / abandonedCount / 1000).toFixed(1)} s` : "-";
+        const ended = (event, detail) => Number(events.find((e) => e.event === event && e.detail === detail)?.count ?? 0);
+        // Every page open ends in one of these; the rest closed too fast to report, or are still open.
+        const outcomes = [["Reached login", week("loaded")], ["Left while downloading", ended("load_abandoned", "download")],
+            ["Left while starting up", ended("load_abandoned", "startup")], ["Still loading after 3 min", week("load_slow")],
+            ...EVENTS.load_failed.map((d) => [`Failed: ${d}`, ended("load_failed", d)])];
+        outcomes.push(["Not reported", Math.max(0, week("visit") - outcomes.reduce((n, o) => n + o[1], 0))]);
         const days = [...Array(14)].map((_, i) => new Date(Date.now() - (13 - i) * 86400_000).toISOString().slice(0, 10));
         const series = (event) => days.map((day) => Number(daily.find((r) => r.day === day && r.event === event)?.count ?? 0));
         const signupSeries = days.map((day) => Number(signupsByDay.find((s) => s.day === day)?.count ?? 0));
@@ -471,10 +483,11 @@ ${columns("Page opens", days, series("visit"))}${columns("Reached login screen",
 ${columns("Accounts created", days, signupSeries)}${columns("World entries", days, series("world_connection"))}
 </div>
 <div class="grid" style="margin-top:12px"><div class="card funnel"><h3>Funnel, 7 days</h3>
-${hbars([["Opened the page", week("visit")], ["Reached login", week("loaded")], ["Created an account", week("account_created")], ["Entered the world", week("world_connection")]], num, week("visit"))}
-<p class="muted">Percentages are of page opens; world entries count sessions, not people.</p></div>
+${hbars([["Opened the page", week("visit")], ["New browsers", week("new_browser")], ["Reached login", week("loaded")], ["Created an account", week("account_created")], ["Entered the world", week("world_connection")]], num, week("visit"))}
+<p class="muted">Percentages are of page opens; world entries count sessions, not people. ${pct(week("account_created"), week("new_browser"))} of new browsers created an account.</p></div>
 <div class="card"><h3>Browsers, 7 days</h3>${hbars(events.filter((e) => e.event === "visit").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div>
-<div class="card"><h3>Failed loads, 7 days</h3>${hbars(events.filter((e) => e.event === "load_failed").sort((a, b) => b.count - a.count).map((e) => [e.detail, e.count]))}</div>
+<div class="card"><h3>How page opens ended, 7 days</h3>${hbars(outcomes.filter((o) => o[1]), num, week("visit"))}
+<p class="muted">Those who left waited ${avgWait} on average.</p></div>
 </div></section>
 
 <section id="players"><div class="grid">
